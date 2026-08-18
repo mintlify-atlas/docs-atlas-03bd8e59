@@ -21,7 +21,7 @@ VRP Solution delegates all real-world routing computations to [OpenRouteService]
     Once generated, copy the full API key string from the dashboard. The key is a JWT-formatted token and will look similar to:
 
     ```
-    eyJvcmciOiI1YjNj...
+    eyJ...
     ```
   </Step>
 
@@ -29,7 +29,7 @@ VRP Solution delegates all real-world routing computations to [OpenRouteService]
     Open `backend-python/config.py` and replace the placeholder value of `ORS_API_KEY` with the key you just copied:
 
     ```python backend-python/config.py
-    ORS_API_KEY = "eyJvcmciOiI1YjNj..."   # paste your key here
+    ORS_API_KEY = "<YOUR_ORS_API_KEY>"   # paste your key here
     ORS_BASE_URL = "https://api.openrouteservice.org"
     ```
 
@@ -56,18 +56,10 @@ The matrix endpoint is called **once** per optimization request and covers all n
 ## Rate Limits and Quotas
 
 <Tip>
-  For local testing and development, keep your total node count below 15. This ensures a single optimization run stays well within the free tier's per-minute and per-day limits.
+  For local testing and development, keep your total node count below 15 to stay comfortably within the free tier's per-minute and per-day limits.
 </Tip>
 
-The ORS free tier (Standard plan) enforces the following limits:
-
-| Limit type | Quota |
-|---|---|
-| Directions requests per minute | 40 |
-| Directions requests per day | 500 |
-| Matrix requests per minute | 5 |
-| Matrix requests per day | 10 |
-| Max matrix locations | 3 500 |
+ORS enforces per-minute and per-day request quotas that vary by plan and may change over time. Check the **Quotas** section of your [ORS Dashboard](https://openrouteservice.org/dev/#/home) for the exact limits that apply to your account.
 
 Each call to `/optimize-routes` consumes:
 - **1 matrix request** regardless of node count
@@ -77,7 +69,7 @@ Each call to `/optimize-routes` consumes:
 A 10-node problem with 3 vehicles and 4 hub customers will therefore use 1 matrix call and up to 7 directions calls. Scaling to 50+ nodes with many hub assignments can exhaust the daily directions budget in a handful of runs.
 
 <Note>
-  If you exceed the per-minute limit, ORS returns HTTP `429 Too Many Requests`. The backend does not currently implement automatic retry with backoff, so the `/optimize-routes` request will fail with an error. Wait 60 seconds and resubmit.
+  If you exceed a per-minute rate limit, ORS returns HTTP `429 Too Many Requests`. The backend does not currently implement automatic retry with backoff, so the `/optimize-routes` request will fail with an error. Wait a moment and resubmit.
 </Note>
 
 ---

@@ -1,5 +1,5 @@
 ---
-title: "Using the Interactive Route Map"
+title: "Explore and Interact with the VRP Route Planning Map"
 sidebarTitle: "Map View"
 description: "Explore the Leaflet-powered map panel — marker types, color-coded route polylines, walking segments, interactive popups, and live coordinate editing."
 ---
@@ -86,9 +86,9 @@ When a station appears in an optimized route, a **grey semi-transparent circle**
 
 ## Map Navigation
 
-The map initializes centered on `[42.36, -71.0805]` (Cambridge, MA) at zoom level 14 if no geocoded nodes are present. Once at least one node has valid coordinates, the map centers on the **first node in the list** (the depot).
+The map initializes centered on `[42.36, -71.0805]` (Cambridge, MA) at zoom level 14. Once the **first node in the list** (the depot) has valid coordinates (non-null `lat` and `lng`), the map re-centers on that node. If the depot has not been geocoded yet, the map stays on the default origin.
 
-The **Quick Jump** dropdown in the `LocationForm` component lets you teleport to a pre-configured city. When a region is selected, `MapController` uses Leaflet's `flyTo` method to animate a smooth pan to the city's coordinates at zoom 14. This is particularly useful when starting a new problem in an unfamiliar area — jump to the city first, then geocode addresses relative to the correct regional context.
+The **Quick Jump** dropdown in the `LocationForm` component lets you teleport to a pre-configured city. When a region is selected, `MapController` calls Leaflet's `setView` method with `animate: true` to pan smoothly to the city's coordinates at zoom 14. This is particularly useful when starting a new problem in an unfamiliar area — jump to the city first, then geocode addresses relative to the correct regional context.
 
 <Tip>
   If your nodes are spread across a large area and some markers are off-screen after optimization, use the scroll wheel or pinch gesture to zoom out until all route polylines are visible. There is no "fit bounds" button — zooming out manually gives you the most control over the viewport.

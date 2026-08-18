@@ -13,7 +13,7 @@ The solver minimizes the total cost of serving all customers, combining two cost
 1. **Travel cost** — the cumulative driving time across all vehicle routes. OR-Tools minimizes the sum of arc costs in the routing graph, where each arc's cost is the driving duration in seconds between two nodes as returned by OpenRouteService.
 2. **Fixed vehicle cost** — every vehicle that is activated in a solution incurs a flat `fixed_cost` charge. This discourages the solver from spinning up extra vehicles unnecessarily; it will consolidate stops onto fewer vehicles when the capacity math allows.
 
-Customer nodes are treated as **optional**: every non-depot node is wrapped in a disjunction with a `penalty=10000`. The solver may choose to leave a node unserved rather than serve it if the detour cost exceeds the penalty — but in practice this only occurs when the combined capacity of all vehicles is genuinely insufficient to reach a node within the maximum route distance.
+Customer nodes are treated as **optional**: every non-depot node is wrapped in a disjunction with a `penalty=10000`. The solver may choose to leave a node unserved rather than serve it if the detour cost exceeds the penalty — but in practice this only occurs when the combined capacity of all vehicles is genuinely insufficient to reach a node within the maximum route duration.
 
 <Note>
   The `penalty=10000` is expressed in the same unit as arc costs (seconds of travel time). An unserved node costs 10,000 seconds — far higher than any realistic detour — so the solver almost always prefers serving nodes. Unserved nodes appear only when hard constraints (capacity or distance limits) make service infeasible.
@@ -79,14 +79,14 @@ Every VRP run enforces the following hard and soft constraints:
     A vehicle with a high `fixed_cost` will only be activated if it delivers enough cost savings through route consolidation to justify its overhead.
   </Accordion>
 
-  <Accordion title="Maximum Route Distance">
-    Each vehicle route is capped at **100,000 meters** (100 km) by default. This constraint prevents degenerate solutions where a single vehicle drives an impractically long circuit:
+  <Accordion title="Maximum Route Duration">
+    Each vehicle route is capped at **100,000 seconds** (~27.8 hours) of travel time by default. Because `solve_vrp()` is called with the `duration_matrix` (driving seconds from OpenRouteService), the `max_route_distance` parameter constrains cumulative travel time, not physical distance. This prevents degenerate solutions where a single vehicle spends an implausibly long time driving a single circuit:
 
     ```python
     routing.AddDimension(
         transit_callback_index,
         0,             # no slack
-        100000,        # max_route_distance in meters
+        100000,        # max_route_distance in seconds of travel time
         True,
         "Distance"
     )

@@ -11,7 +11,7 @@ VRP Solution runs as two independent processes that communicate over HTTP: a Fas
 The backend stores its runtime configuration in `backend-python/config.py`. This is a plain Python module imported directly by the FastAPI application — no `.env` parsing library is required.
 
 ```python backend-python/config.py
-ORS_API_KEY = "your_openrouteservice_api_key_here"
+ORS_API_KEY = "<YOUR_ORS_API_KEY>"
 ORS_BASE_URL = "https://api.openrouteservice.org"
 ```
 

@@ -201,10 +201,10 @@ The process works as follows:
 
 ## Unassigned Nodes
 
-Even with a full fleet and hub coverage, some customer nodes may not make it into the final solution. This happens when the combined capacity of all vehicles is insufficient to serve every node within the maximum route distance constraint, causing the OR-Tools solver to invoke the optional-node penalty mechanism and drop the node from all routes.
+Even with a full fleet and hub coverage, some customer nodes may not make it into the final solution. This happens when the combined capacity of all vehicles is insufficient to serve every node within the maximum route duration constraint, causing the OR-Tools solver to invoke the optional-node penalty mechanism and drop the node from all routes.
 
 Nodes that appear in the optimizer's response without a vehicle assignment are surfaced in the **Unassigned Nodes** panel in the VRP Solution UI. Each unassigned node shows its name, address, load, and working time so that operators can decide whether to re-run the optimization with additional vehicle capacity or handle those deliveries separately.
 
 <Warning>
-  If a significant number of nodes are consistently unassigned, it is a signal that your fleet's total capacity is too low for the demand, or that the 100,000 m maximum route distance constraint is excluding outlier nodes. Consider adding vehicles, increasing vehicle capacity, or checking whether any nodes exceed the 100 km depot radius limit.
+  If a significant number of nodes are consistently unassigned, it is a signal that your fleet's total capacity is too low for the demand, or that the 100,000-second maximum route duration constraint is excluding outlier nodes. Consider adding vehicles, increasing vehicle capacity, or checking whether any nodes exceed the 100 km depot radius limit.
 </Warning>

@@ -1,7 +1,7 @@
 ---
-title: "VRP Solution: Optimize Urban Delivery Routes"
+title: "VRP Solution: Two-Echelon Urban Delivery Optimizer"
 sidebarTitle: "Introduction"
-description: "VRP Solution is a full-stack Two-Echelon VRP solver for urban logistics teams, combining OR-Tools optimization with real-world road routing and an interactive map UI."
+description: "A full-stack 2E-VRP solver combining Google OR-Tools, OpenRouteService road routing, and an interactive React-Leaflet map for urban delivery planning."
 ---
 
 VRP Solution is an end-to-end platform for solving the **Two-Echelon Vehicle Routing Problem (2E-VRP)** — the challenge of planning city deliveries where large vehicles service intermediate hubs and couriers complete the last-mile leg on foot. The system accepts a depot, a set of customer nodes, and a fleet of vehicles, then returns optimized driving routes annotated with real road geometries, walking segments to nearby hub stations, and per-route statistics. Everything runs in a browser: no GIS software or separate solver license required.
@@ -43,7 +43,7 @@ Before diving into the quickstart or API reference, the following concept pages 
 
 ## EZ Parking Hub Stations
 
-The backend ships with five pre-configured hub stations clustered in **Cambridge, MA**, all named **EZ Parking 1–5**. These stations represent real parking locations and serve as the transfer points where vehicles drop consolidated loads for pedestrian couriers to complete the last metre. Their coordinates are hard-coded in `backend-python/app/main.py` and are returned by the `GET /stations` endpoint on startup.
+The backend ships with five pre-configured hub stations clustered in **Cambridge, MA**, all named **EZ Parking 1–5**. These stations represent real parking locations and serve as the transfer points where vehicles drop consolidated loads for pedestrian couriers to complete the last mile. Their coordinates are hard-coded in `backend-python/app/main.py` and are returned by the `GET /stations` endpoint on startup.
 
 <Note>
   When you load the frontend for the first time, the map centers on Cambridge, MA (latitude 42.36, longitude -71.0805) and all five EZ Parking stations are immediately visible as blue pins. You can add your own stations or use the `use_auto_hubs` flag to generate K-Means cluster centroids automatically.

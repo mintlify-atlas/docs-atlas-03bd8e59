@@ -1,7 +1,7 @@
 ---
 title: "POST /optimize-routes — Solve the 2E-VRP"
 sidebarTitle: "POST /optimize-routes"
-description: "Core solver endpoint that accepts a full Two-Echelon VRP problem definition and returns optimized multi-vehicle routes with real-world driving and walking polylines."
+description: "Core solver endpoint accepting a full 2E-VRP problem definition. Returns optimized multi-vehicle routes with driving and walking polyline geometry."
 ---
 
 The `POST /optimize-routes` endpoint is the heart of the VRP Solution system. It accepts the complete problem definition — depot, customer nodes, vehicles, and hub stations — and returns a fully solved Two-Echelon VRP with real-world route geometry. Internally, the endpoint runs distance validation, station assignment, OR-Tools CVRP solving, OpenRouteService matrix lookup, and polyline geometry fetching before assembling the final response.
@@ -153,11 +153,11 @@ Returns a JSON object with two top-level keys: `routes` and `nodes`.
       Ordered list of driving segments between consecutive stops (depot → station → depot).
 
       <Expandable title="Driving segment fields">
-        <ResponseField name="from_node" type="integer">
-          Index of the origin node in the `vrp_nodes` array (0 = depot).
+        <ResponseField name="from_node" type="Node object">
+          The origin node for this driving segment (same shape as the Node model). The depot node has `id = "0"`.
         </ResponseField>
-        <ResponseField name="to_node" type="integer">
-          Index of the destination node in the `vrp_nodes` array.
+        <ResponseField name="to_node" type="Node object">
+          The destination node for this driving segment (same shape as the Node model).
         </ResponseField>
         <ResponseField name="distance" type="float">
           Driving distance for this segment in meters.
@@ -232,8 +232,22 @@ The following is a condensed excerpt showing one route from a real solver run (c
       },
       "driving_routes": [
         {
-          "from_node": 0,
-          "to_node": 3,
+          "from_node": {
+            "id": "0",
+            "name": "Main Depot",
+            "address": "Moakley Library",
+            "lat": 42.3568568,
+            "lng": -71.0609706,
+            "nearby_node_id": null,
+            "load": 0,
+            "working_time": 0
+          },
+          "to_node": {
+            "id": 4,
+            "name": "EZ Parking 4",
+            "lat": 42.3651988,
+            "lng": -71.0831014
+          },
           "distance": 2770.6,
           "duration": 414.9,
           "coords": [
@@ -242,8 +256,22 @@ The following is a condensed excerpt showing one route from a real solver run (c
           ]
         },
         {
-          "from_node": 3,
-          "to_node": 0,
+          "from_node": {
+            "id": 4,
+            "name": "EZ Parking 4",
+            "lat": 42.3651988,
+            "lng": -71.0831014
+          },
+          "to_node": {
+            "id": "0",
+            "name": "Main Depot",
+            "address": "Moakley Library",
+            "lat": 42.3568568,
+            "lng": -71.0609706,
+            "nearby_node_id": null,
+            "load": 0,
+            "working_time": 0
+          },
           "distance": 3091.2,
           "duration": 435.9,
           "coords": [

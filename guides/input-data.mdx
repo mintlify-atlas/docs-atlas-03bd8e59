@@ -1,7 +1,7 @@
 ---
-title: "Enter Nodes and Vehicles for Route Optimization"
+title: "Enter Nodes and Vehicles for Route Optimization (2E-VRP)"
 sidebarTitle: "Input Data"
-description: "Learn how to define your depot, customer stops, and fleet in the left sidebar before running the Two-Echelon VRP optimizer."
+description: "Learn how to define your depot, customer stops, and fleet in the left sidebar panel before running the Two-Echelon VRP route optimizer."
 ---
 
 The left sidebar is the primary input panel for every optimization run. Before you can calculate routes, you need to define three things: your working region (so the geocoder looks in the right city), at least one depot node plus one or more customer nodes, and at least one vehicle. Each section of the sidebar feeds directly into the solver — nothing is submitted until you click **Calculate Routes**.
@@ -90,14 +90,17 @@ You can remove any vehicle (except the last one) using the red trash icon on its
 
 ## Validation
 
-The **Calculate Routes** button is disabled automatically until all of the following conditions are met:
+The **Calculate Routes** button is disabled automatically when either of the following is true:
 
-- At least **2 nodes** are present (1 depot + 1 customer minimum)
-- At least **1 vehicle** is defined
-- All nodes have been geocoded (non-empty lat/lng values)
-- All vehicles have a **Capacity > 0**
+- Fewer than **2 nodes** are present (you need at least 1 depot + 1 customer)
+- No vehicles have been defined (`vehicles.length === 0`)
 
-If any condition is unmet, the button remains greyed out with a `not-allowed` cursor. No partial submissions are possible.
+When those structural conditions are met, clicking the button triggers additional client-side checks that surface as alert dialogs:
+
+- Every node must have a non-empty **name**, a non-empty **address**, and fully resolved **lat / lng** coordinates — any blank or un-geocoded coordinate triggers an **"Incomplete Nodes"** alert
+- Every vehicle must have a non-empty **name**, a **capacity greater than zero**, and a numeric **fixed\_cost** — any violation triggers an **"Incomplete Vehicles"** alert
+
+The button remains greyed out with a `not-allowed` cursor only for the structural checks. The coordinate and vehicle-field checks fire at submission time.
 
 <Tip>
   You can drag any marker on the map after geocoding to fine-tune its position. Dragging a marker updates the node's `lat` and `lng` values in real time without re-running the geocoder.

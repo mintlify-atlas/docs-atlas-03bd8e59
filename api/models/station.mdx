@@ -70,7 +70,7 @@ When `use_auto_hubs: true` is set in a `VRPRequest`, the server runs K-Means clu
 ```
 
 <Warning>
-  Auto-generated hub `id` values are strings (e.g., `"auto_hub_0"`), not integers. They will appear in `Node.nearby_node_id` as strings if a customer is assigned to one. They are also filtered for minimum distance — any auto hub generated within 0.1 km of an existing station is discarded to avoid redundancy.
+  Auto-generated hub `id` values are strings (e.g., `"auto_hub_0"`), not integers. This differs from the `Station` Pydantic model where `id` is an `int`. Auto hubs are also filtered for minimum distance — any auto hub generated within 0.1 km of an existing station is discarded to avoid redundancy.
 </Warning>
 
 <Note>

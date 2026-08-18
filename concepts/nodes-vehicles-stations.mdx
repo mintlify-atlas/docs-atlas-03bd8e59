@@ -104,7 +104,7 @@ Each vehicle in the fleet is described by a capacity and a fixed operating cost.
 </ParamField>
 
 <ParamField body="fixed_cost" type="int" required>
-  A flat cost charged whenever this vehicle is activated in a solution (i.e., it leaves the depot). The optimizer weighs this against the marginal travel savings of using an additional vehicle. A high `fixed_cost` vehicle is only deployed when it meaningfully reduces total route distance.
+  A flat cost charged whenever this vehicle is activated in a solution (i.e., it leaves the depot). The optimizer weighs this against the marginal travel time savings of using an additional vehicle. A high `fixed_cost` vehicle is only deployed when it meaningfully reduces total route duration.
 </ParamField>
 
 **Example — two vehicles with different capacity/cost profiles:**

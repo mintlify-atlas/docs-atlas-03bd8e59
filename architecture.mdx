@@ -1,7 +1,7 @@
 ---
-title: "VRP Solution Architecture and Data Flow"
+title: "System Architecture and Request Lifecycle — VRP Solution"
 sidebarTitle: "Architecture"
-description: "A deep-dive into VRP Solution's two-service design: the React 19 frontend, the FastAPI backend, four Python service modules, and the full request lifecycle from form submission to rendered routes."
+description: "How VRP Solution's React frontend, FastAPI backend, and four service modules turn a list of delivery nodes into optimized, road-accurate routes."
 ---
 
 VRP Solution is composed of two independent services — a **React 19 single-page application** that handles user input and map rendering, and a **FastAPI backend** that orchestrates geocoding, preprocessing, matrix computation, optimization, and route geometry retrieval. The two services communicate exclusively over HTTP; the frontend never accesses external APIs directly. This separation means you can swap the frontend for a headless API client, or point multiple frontends at the same backend, without changing either service.
@@ -16,7 +16,7 @@ The frontend is a Vite-bundled React 19 application styled with Tailwind CSS. It
 
 | Component | File | Responsibility |
 |---|---|---|
-| `App` | `App.jsx` | Root component. Owns all shared state (`nodes`, `vehicles`, `stations`, `routeData`). Polls the backend `/health` endpoint on mount and blocks the UI with `LoadingScreen` until the backend is reachable. Invokes `fetchSegmentRoute` when the user clicks Calculate Routes. |
+| `App` | `App.jsx` | Root component. Owns all shared state (`nodes`, `vehicles`, `stations`, `routeData`). Polls the backend `/health` endpoint on mount and blocks the UI with `LoadingScreen` until the backend is reachable. Invokes `drawRoute` (which calls `fetchSegmentRoute`) when the user clicks Calculate Routes. |
 | `Sidebar` | `Sidebar.jsx` | Left panel. Renders the node list, vehicle list, CSV import/export controls, and the Calculate Routes button. Receives state setters as props and dispatches updates upward to `App`. |
 | `LocationForm` | `LocationForm.jsx` | Geocoding widget embedded in each node row. Sends the user-typed address to the backend `GET /geocode` endpoint (backed by Nominatim) and populates the node's `lat`/`lng` fields from the returned results. |
 | `MapView` | `MapView.jsx` | Right panel. Renders an OpenStreetMap base layer via react-leaflet. Draws depot, customer, and station markers; color-coded driving polylines per vehicle; and dashed walking polylines for last-mile legs. Re-renders whenever `routeData` or `nodes` change. |
@@ -24,7 +24,7 @@ The frontend is a Vite-bundled React 19 application styled with Tailwind CSS. It
 
 ### Backend Polling on Load
 
-`App.jsx` calls `fetchBackend()` (which hits `GET /health`) immediately on mount and retries every 3 seconds until the backend responds with HTTP 200. During this window, the user sees `LoadingScreen`. Once the backend is reachable, the app fetches initial data from `GET /nodes`, `GET /vehicles`, and `GET /stations` to pre-populate the form with any server-side defaults.
+`App.jsx` calls `fetchBackend()` (which hits `GET /health`) immediately on mount and retries every **3 seconds** until the backend responds with HTTP 200. During this window, the user sees `LoadingScreen`. Once the backend is reachable, the app fetches initial data from `GET /nodes`, `GET /vehicles`, and `GET /stations` to pre-populate the form with any server-side defaults.
 
 ---
 

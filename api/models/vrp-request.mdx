@@ -35,8 +35,7 @@ description: "VRPRequest is the POST /optimize-routes body, bundling nodes, vehi
     The `node_distance_checker()` function is called before any other processing step. It iterates over every non-depot node and calculates the haversine distance from the depot. If any node is farther than **100 km** from the depot, the server raises a `ValueError` and returns an error response. This prevents degenerate matrix calls to OpenRouteService.
 
     ```
-    ValueError: Distance limit exceeded. Node 'Customer X' is 142.3 km away
-    from the Depot. Maximum allowed is 100 km.
+    ValueError: Distance limit exceeded. Node 'Customer X' is 142.3 km away from the Depot. Maximum allowed is 100.0 km.
     ```
   </Accordion>
   <Accordion title="Minimum node count">

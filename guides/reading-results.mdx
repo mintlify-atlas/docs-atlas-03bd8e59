@@ -1,5 +1,5 @@
 ---
-title: "Read and Export Optimization Results"
+title: "Read, Interpret, and Export VRP Optimization Results"
 sidebarTitle: "Reading Results"
 description: "Understand every field in the results panel — vehicle summary cards, stop timeline tables, walking sub-rows, unassigned nodes, and CSV export options."
 ---
@@ -10,7 +10,7 @@ Once the backend returns a successful response, the input form is replaced by th
 
 Every optimized vehicle that was assigned at least one stop gets its own card. The dark header row shows the vehicle name, its internal ID, and a load indicator in the top-right corner.
 
-```
+```text
 Vehicle 1                          Total Load
 ID: <uuid>              MAPS 🚚    15 / 15
 ```
@@ -85,7 +85,7 @@ Each unassigned node shows its name, address, and load. A node is unassigned whe
 
 ## Exporting Results
 
-Three export actions are available at the bottom of the results panel:
+Two download buttons appear at the bottom of the results panel, and each vehicle card also provides a direct Google Maps link in its header:
 
 <Tabs>
   <Tab title="Export Raw Nodes">

@@ -1,7 +1,7 @@
 ---
-title: "Import Nodes and Vehicles from CSV Files"
+title: "Import Nodes and Vehicles from CSV, Export Results"
 sidebarTitle: "CSV Import"
-description: "Speed up data entry by importing bulk node and vehicle lists from CSV files, and export geocoded nodes or full routing tables after optimization."
+description: "Speed up data entry by importing bulk node and vehicle lists from CSV files, then export geocoded nodes or full routing tables after optimization."
 ---
 
 For scenarios with many delivery stops or a large fleet, filling in each row manually is impractical. VRP Solution supports CSV import for both nodes and vehicles, letting you prepare your data in a spreadsheet, upload it in one click, and have the full list appear in the sidebar instantly. Matching template files can be downloaded directly from the app to ensure your columns are in exactly the right order.
@@ -10,7 +10,7 @@ For scenarios with many delivery stops or a large fleet, filling in each row man
 
 The nodes CSV must contain **six columns in this exact order**, with a header row followed by one row per node:
 
-```
+```text
 name, address, lat, lng, load, working_time
 ```
 
@@ -45,7 +45,7 @@ name,address,lat,lng,load,working_time
 
 The vehicles CSV must contain **three columns in this exact order**:
 
-```
+```text
 name, capacity, fixed_cost
 ```
 

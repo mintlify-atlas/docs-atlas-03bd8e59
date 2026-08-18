@@ -1,7 +1,7 @@
 ---
-title: "Get Started with VRP Solution in 5 Minutes"
+title: "Quickstart: Run VRP Solution in Under Five Minutes"
 sidebarTitle: "Quickstart"
-description: "Clone the repo, configure your OpenRouteService API key, spin up the FastAPI backend and Vite dev server, then run your first route optimization in under five minutes."
+description: "Clone the repo, add your OpenRouteService API key, start the FastAPI backend and Vite dev server, then solve your first multi-stop delivery route."
 ---
 
 This guide takes you from a fresh clone to a working solver with routes drawn on the map. You will start the FastAPI backend, point it at your OpenRouteService account, install the React frontend, and submit your first optimization request — all without writing any application code.
@@ -50,7 +50,7 @@ Before you begin, make sure the following are available on your machine:
     ORS_BASE_URL = "https://api.openrouteservice.org"
     ```
 
-    The `ORS_API_KEY` is consumed by both `matrix_service.py` (to call `/v2/matrix/driving-car`) and `routing_service.py` (to call `/v2/directions/driving-car` and `/v2/directions/foot-hiking`). All three calls will fail with HTTP 403 if the key is missing or invalid.
+    `ORS_API_KEY` is consumed by both `matrix_service.py` (to call `/v2/matrix/driving-car`) and `routing_service.py` (to call `/v2/directions/driving-car` and `/v2/directions/foot-hiking`). All three calls will fail with HTTP 403 if the key is missing or invalid.
   </Step>
 
   <Step title="Install frontend dependencies and start the dev server">
@@ -88,7 +88,7 @@ Before you begin, make sure the following are available on your machine:
 </Steps>
 
 <Tip>
-  On first load, the frontend polls `GET /health` every three seconds until the backend responds. If you are running the backend on a remote server or a free-tier cloud host that cold-starts, **expect a 30–50 second wait** before the loading screen clears and the main interface appears. This is normal — the app will connect automatically once the backend is ready.
+  On first load, the frontend calls `GET /health` and retries every three seconds until the backend responds with HTTP 200. If you are running the backend on a remote server or a free-tier cloud host that cold-starts, **expect a 30–50 second wait** before the loading screen clears and the main interface appears. This is normal — the app connects automatically once the backend is ready.
 </Tip>
 
 ---

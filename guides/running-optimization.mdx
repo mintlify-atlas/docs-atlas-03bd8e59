@@ -1,5 +1,5 @@
 ---
-title: "Run Route Optimization and Interpret the Process"
+title: "Run the 2E-VRP Optimizer and Interpret the Process"
 sidebarTitle: "Run Optimization"
 description: "Learn what the Calculate Routes button triggers, how the server processes your data, and how to handle common errors before and after submission."
 ---
@@ -23,7 +23,7 @@ Before making any network request, the frontend validates your data client-side 
 </CardGroup>
 
 <Note>
-  The **Calculate Routes** button is disabled (greyed out) when `nodes.length < 2` or `vehicles.length === 0`, so you cannot trigger a request in those states. The three remaining checks run when the button is clicked and will surface an alert dialog describing the issue.
+  The **Calculate Routes** button is disabled (greyed out) when `nodes.length < 2` or `vehicles.length === 0`, so you cannot trigger a request in those states. The two remaining checks — node completeness and vehicle completeness — run when the button is clicked and will surface an alert dialog describing the issue.
 </Note>
 
 ## The `use_auto_hubs` Option

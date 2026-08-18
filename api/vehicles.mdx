@@ -1,7 +1,7 @@
 ---
 title: "GET /vehicles — List Configured Vehicles"
 sidebarTitle: "GET /vehicles"
-description: "Returns the server-side list of pre-seeded vehicles. Empty by default — vehicles are managed client-side in the React frontend and submitted with the optimization request."
+description: "Returns the server-side list of pre-seeded vehicles. Empty by default — vehicles are built in the React frontend and sent with each optimization request."
 ---
 
 The `/vehicles` endpoint returns the list of vehicles that have been pre-configured in the backend's `main.py` file. In the default installation this list is empty — all sample vehicle definitions in the source are commented out — so the endpoint returns an empty array. Like nodes, vehicles are typically created and managed entirely on the client side in the React frontend, then submitted as part of the `POST /optimize-routes` request body.

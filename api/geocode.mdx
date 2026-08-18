@@ -84,10 +84,11 @@ print(r.json())
     ```
   </Accordion>
 
-  <Accordion title="Nominatim User-Agent requirement">
-    Nominatim's usage policy requires all requests to include a descriptive `User-Agent` header identifying the application. The backend sets this header to `"vrp-research-app"` on every outgoing request:
+  <Accordion title="Nominatim endpoint and User-Agent requirement">
+    The backend forwards the geocoding request to `https://nominatim.openstreetmap.org/search` with `format=json`. Nominatim's usage policy requires all requests to include a descriptive `User-Agent` header identifying the application. The backend sets this header to `"vrp-research-app"` on every outgoing request:
 
     ```python
+    url = "https://nominatim.openstreetmap.org/search"
     r = requests.get(
         url,
         params=params,
