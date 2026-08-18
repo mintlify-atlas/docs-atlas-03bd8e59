@@ -1,72 +1,91 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mintlify Starter Kit",
+  "name": "VRP Solution",
+  "theme": "luma",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#1f2937",
+    "light": "#fbc926",
+    "dark": "#8c73fa"
   },
-  "favicon": "/favicon.svg",
-  "navigation": {
-    "pages": [
-      {
-        "group": "Getting Started",
-        "pages": [
-          "index",
-          "quickstart"
-        ]
-      }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
+  "favicon": "https://media.brand.dev/ee70b7aa-4d92-4d93-9f1e-c552fecafcf8.svg",
   "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
     "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://app.mintlify.com"
+      "type": "github",
+      "href": "https://github.com/Porto1090/vrp-solution"
     }
-  },
-  "contextual": {
-    "options": [
-      "copy",
-      "view",
-      "chatgpt",
-      "claude",
-      "perplexity",
-      "mcp",
-      "cursor",
-      "vscode"
-    ]
   },
   "footer": {
     "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
+      "github": "https://github.com/Porto1090/vrp-solution"
     }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/vrp",
+              "concepts/nodes-vehicles-stations",
+              "concepts/two-echelon"
+            ]
+          },
+          {
+            "group": "Using the App",
+            "pages": [
+              "guides/input-data",
+              "guides/csv-import",
+              "guides/running-optimization",
+              "guides/reading-results",
+              "guides/map-view"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment",
+              "configuration/openrouteservice"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Backend API",
+            "pages": [
+              "api/overview",
+              "api/health",
+              "api/nodes",
+              "api/stations",
+              "api/vehicles",
+              "api/geocode",
+              "api/optimize-routes"
+            ]
+          },
+          {
+            "group": "Data Models",
+            "pages": [
+              "api/models/node",
+              "api/models/vehicle",
+              "api/models/station",
+              "api/models/vrp-request",
+              "api/models/route-response"
+            ]
+          }
+        ]
+      }
+    ]
   }
 }

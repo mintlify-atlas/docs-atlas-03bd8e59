@@ -1,0 +1,107 @@
+{
+  "projectType": "saas",
+  "projectName": "VRP Solution",
+  "projectDescription": "A full-stack Two-Echelon Vehicle Routing Problem (2E-VRP) solver that optimizes multi-vehicle delivery routes with driving and last-mile walking segments, powered by Google OR-Tools and OpenRouteService.",
+  "theme": "luma",
+  "primaryColor": "#1f2937",
+  "lightColor": "#fbc926",
+  "darkColor": "#8c73fa",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/vrp",
+              "concepts/nodes-vehicles-stations",
+              "concepts/two-echelon"
+            ]
+          },
+          {
+            "group": "Using the App",
+            "pages": [
+              "guides/input-data",
+              "guides/csv-import",
+              "guides/running-optimization",
+              "guides/reading-results",
+              "guides/map-view"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment",
+              "configuration/openrouteservice"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Backend API",
+            "pages": [
+              "api/overview",
+              "api/health",
+              "api/nodes",
+              "api/stations",
+              "api/vehicles",
+              "api/geocode",
+              "api/optimize-routes"
+            ]
+          },
+          {
+            "group": "Data Models",
+            "pages": [
+              "api/models/node",
+              "api/models/vehicle",
+              "api/models/station",
+              "api/models/vrp-request",
+              "api/models/route-response"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Two-Echelon VRP (2E-VRP) optimization using Google OR-Tools with capacity constraints and optional node penalties",
+    "Automatic hub generation via K-Means clustering to create intermediate parking/depot points",
+    "Real-world route geometry via OpenRouteService for both driving (vehicles) and walking (last-mile) segments",
+    "Interactive map powered by Leaflet/React-Leaflet with draggable customer markers and color-coded vehicle routes",
+    "Address geocoding through Nominatim (OpenStreetMap) with city/country scoping",
+    "CSV import/export for nodes and vehicles, plus downloadable routing result tables",
+    "Proximity assignment: customers within 0.25 km of a parking station are served on foot from that hub",
+    "Route statistics panel with per-vehicle driving/walking summaries, stop timelines, and Google Maps deep links"
+  ],
+  "publicApiSurface": [
+    "GET /health — backend liveness check",
+    "GET /nodes — list configured delivery nodes",
+    "GET /stations — list EZ Parking hub stations",
+    "GET /vehicles — list configured vehicles",
+    "GET /geocode?q={address} — geocode an address via Nominatim",
+    "POST /optimize-routes — solve the 2E-VRP and return optimized routes with geometry",
+    "VRPRequest model: { nodes: Node[], vehicles: Vehicle[], stations: Station[], use_auto_hubs: bool }",
+    "Node model: { id, name, address?, lat, lng, load, working_time, nearby_node_id? }",
+    "Vehicle model: { id, name, capacity, fixed_cost }",
+    "Station model: { id, name, lat, lng }",
+    "solve_vrp(distance_matrix, vehicles, depot, demands, penalty, max_route_distance)",
+    "prepare_vrp_data(nodes, stations) → vrp_nodes, vrp_demands, station_customers",
+    "determine_nearby_stations(nodes, stations, radius_km) → nodes with nearby_node_id",
+    "generate_hubs(nodes, stations, num_hubs) → auto-generated hub stations",
+    "get_vehicle_route_geometry(route_nodes, all_nodes) → driving segments with polylines",
+    "get_walking_route_geometry(parking, nearby_nodes) → walking segments with polylines",
+    "get_vehicle_matrix(nodes) → distance_matrix, duration_matrix"
+  ]
+}

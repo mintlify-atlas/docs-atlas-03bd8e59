@@ -1,0 +1,67 @@
+---
+title: "GET /health — Backend Health Check Endpoint"
+sidebarTitle: "GET /health"
+description: "Liveness probe that confirms the FastAPI backend is running and accepting requests. Polled every 3 seconds by the React frontend on startup."
+---
+
+The `/health` endpoint is a lightweight liveness probe that confirms the FastAPI process is up and accepting connections. The React frontend calls this endpoint on application startup, polling every 3 seconds until it receives a `200 OK` response before enabling the UI. It requires no parameters and performs no database or external service calls.
+
+## Request
+
+**Method:** `GET`  
+**Path:** `/health`  
+**Auth:** None  
+**Parameters:** None
+
+## Response
+
+Returns a JSON object with a single field indicating the backend is ready.
+
+<ResponseField name="status" type="string">
+  Always `"healthy"` when the backend is running normally.
+</ResponseField>
+
+## Example
+
+<CodeGroup>
+```bash cURL
+curl http://localhost:8000/health
+```
+
+```js JavaScript (Fetch)
+const res = await fetch('http://localhost:8000/health');
+const data = await res.json();
+// data => { status: 'healthy' }
+```
+
+```python Python
+import requests
+r = requests.get("http://localhost:8000/health")
+print(r.json())  # {'status': 'healthy'}
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "status": "healthy"
+}
+```
+
+## Frontend Polling Behaviour
+
+The frontend's `api.js` service wraps this endpoint in a polling loop. When the React app mounts, it calls `fetchBackend()` at a 3-second interval and only proceeds to load nodes, stations, and vehicles once a successful response is returned. If the backend is not yet ready (e.g. still starting up, solver dependencies loading), the UI displays a loading state until polling succeeds.
+
+```js
+// frontend/src/services/api.js
+export async function fetchBackend() {
+  const res = await fetch(`${BASE}/health`);
+  if (!res.ok) throw new Error('Failed backend');
+  return res.json();
+}
+```
+
+<Note>
+  This endpoint does not validate external dependencies such as the OpenRouteService API or Nominatim connectivity. A `200` response only guarantees the FastAPI process itself is running.
+</Note>

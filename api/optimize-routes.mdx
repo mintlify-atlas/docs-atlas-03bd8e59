@@ -1,0 +1,408 @@
+---
+title: "POST /optimize-routes — Solve the 2E-VRP"
+sidebarTitle: "POST /optimize-routes"
+description: "Core solver endpoint that accepts a full Two-Echelon VRP problem definition and returns optimized multi-vehicle routes with real-world driving and walking polylines."
+---
+
+The `POST /optimize-routes` endpoint is the heart of the VRP Solution system. It accepts the complete problem definition — depot, customer nodes, vehicles, and hub stations — and returns a fully solved Two-Echelon VRP with real-world route geometry. Internally, the endpoint runs distance validation, station assignment, OR-Tools CVRP solving, OpenRouteService matrix lookup, and polyline geometry fetching before assembling the final response.
+
+## Request
+
+**Method:** `POST`  
+**Path:** `/optimize-routes`  
+**Content-Type:** `application/json`  
+**Auth:** None
+
+### Request Body
+
+<ParamField body="nodes" type="array of Node" required>
+  The list of all locations. The **first element must be the depot** with `id = "0"`, `load = 0`, and `working_time = 0`. Subsequent elements are customer nodes. All nodes must be within 100 km of the depot or the request is rejected with HTTP 422.
+
+  <Expandable title="Node fields">
+    <ParamField body="id" type="string" required>
+      `"0"` for the depot; a UUID string for each customer node.
+    </ParamField>
+    <ParamField body="name" type="string" required>
+      Display label (e.g. `"Main Depot"`, `"Customer 1"`).
+    </ParamField>
+    <ParamField body="address" type="string">
+      Street address or description. Used for display only.
+    </ParamField>
+    <ParamField body="lat" type="float" required>
+      Latitude in decimal degrees.
+    </ParamField>
+    <ParamField body="lng" type="float" required>
+      Longitude in decimal degrees.
+    </ParamField>
+    <ParamField body="load" type="integer">
+      Demand units to deliver. Must be `0` for the depot. Defaults to `0`.
+    </ParamField>
+    <ParamField body="working_time" type="integer">
+      Service time in minutes at this node. Must be `0` for the depot. Defaults to `0`.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="vehicles" type="array of Vehicle" required>
+  At least one vehicle must be provided. The solver selects the optimal subset to minimize total cost.
+
+  <Expandable title="Vehicle fields">
+    <ParamField body="id" type="string" required>
+      UUID string uniquely identifying this vehicle.
+    </ParamField>
+    <ParamField body="name" type="string" required>
+      Display label (e.g. `"Vehicle 1"`).
+    </ParamField>
+    <ParamField body="capacity" type="integer" required>
+      Maximum load units. The solver enforces this as a hard constraint.
+    </ParamField>
+    <ParamField body="fixed_cost" type="integer" required>
+      Cost added to the objective whenever this vehicle is used.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="stations" type="array of Station" required>
+  EZ Parking hub stations to use as second-echelon transfer points. Typically the 5 stations returned by `GET /stations`, but any subset or custom list of stations with valid coordinates is accepted.
+
+  <Expandable title="Station fields">
+    <ParamField body="id" type="integer" required>
+      Numeric station ID.
+    </ParamField>
+    <ParamField body="name" type="string" required>
+      Station display name (e.g. `"EZ Parking 4"`).
+    </ParamField>
+    <ParamField body="lat" type="float" required>
+      Latitude in decimal degrees.
+    </ParamField>
+    <ParamField body="lng" type="float" required>
+      Longitude in decimal degrees.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="use_auto_hubs" type="boolean" default="false">
+  When `true`, the backend runs K-Means clustering on the customer nodes to generate 2 additional synthetic hub candidates and appends them to the stations list before solving. This can improve coverage when the fixed EZ Parking stations are poorly positioned relative to the customer cluster.
+</ParamField>
+
+### Request Example
+
+```json
+{
+  "nodes": [
+    {
+      "id": "0",
+      "name": "Main Depot",
+      "address": "Moakley Library",
+      "lat": 42.3568568,
+      "lng": -71.0609706,
+      "load": 0,
+      "working_time": 0
+    },
+    {
+      "id": "cd042026-c2cd-4168-97b2-940b27edc93b",
+      "name": "Customer 1",
+      "address": "Timothy J. Toomey, Jr. Park",
+      "lat": 42.3665529,
+      "lng": -71.0807375,
+      "load": 6,
+      "working_time": 41
+    },
+    {
+      "id": "8c813ef8-7863-4e61-a444-4cbc430f6785",
+      "name": "Customer 2",
+      "address": "Cambridge Center Garage",
+      "lat": 42.3635614,
+      "lng": -71.0886472,
+      "load": 3,
+      "working_time": 73
+    }
+  ],
+  "vehicles": [
+    {
+      "id": "7806f630-5785-4eeb-87ec-3b736834a442",
+      "name": "Vehicle 1",
+      "capacity": 15,
+      "fixed_cost": 50
+    }
+  ],
+  "stations": [
+    {
+      "id": 4,
+      "name": "EZ Parking 4",
+      "lat": 42.3651988,
+      "lng": -71.0831014
+    }
+  ],
+  "use_auto_hubs": false
+}
+```
+
+## Response
+
+Returns a JSON object with two top-level keys: `routes` and `nodes`.
+
+<ResponseField name="routes" type="array">
+  Each element describes one vehicle's complete itinerary. Routes where the vehicle visits only the depot (2 stops: depot → depot) are filtered out — only routes with at least one customer stop are included.
+
+  <Expandable title="Route object fields">
+    <ResponseField name="vehicle" type="Vehicle object">
+      The vehicle assigned to this route (same shape as the Vehicle request model).
+    </ResponseField>
+    <ResponseField name="driving_routes" type="array">
+      Ordered list of driving segments between consecutive stops (depot → station → depot).
+
+      <Expandable title="Driving segment fields">
+        <ResponseField name="from_node" type="integer">
+          Index of the origin node in the `vrp_nodes` array (0 = depot).
+        </ResponseField>
+        <ResponseField name="to_node" type="integer">
+          Index of the destination node in the `vrp_nodes` array.
+        </ResponseField>
+        <ResponseField name="distance" type="float">
+          Driving distance for this segment in meters.
+        </ResponseField>
+        <ResponseField name="duration" type="float">
+          Estimated driving time for this segment in seconds.
+        </ResponseField>
+        <ResponseField name="coords" type="array of [lat, lng]">
+          Decoded polyline coordinates for rendering the route on a map.
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="walking_routes" type="array">
+      One entry per customer who is served via a station walking leg.
+
+      <Expandable title="Walking segment fields">
+        <ResponseField name="node" type="Node object">
+          The customer node being served on this walking leg, including `nearby_node_id`.
+        </ResponseField>
+        <ResponseField name="coords" type="array of [lat, lng]">
+          Decoded walking route polyline from the station to the customer.
+        </ResponseField>
+        <ResponseField name="distance" type="float">
+          Walking distance in meters.
+        </ResponseField>
+        <ResponseField name="duration" type="float">
+          Estimated walking time in seconds.
+        </ResponseField>
+        <ResponseField name="station_id" type="integer">
+          ID of the EZ Parking station this walking leg departs from.
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="stops" type="array of Node">
+      Ordered list of nodes visited by the vehicle, including the depot at the start and end.
+    </ResponseField>
+    <ResponseField name="total_driving_time" type="float">
+      Sum of all driving segment durations for this route, in seconds.
+    </ResponseField>
+    <ResponseField name="total_driving_distance" type="float">
+      Sum of all driving segment distances for this route, in meters.
+    </ResponseField>
+    <ResponseField name="total_walking_time" type="float">
+      Sum of all walking segment durations for this route, in seconds.
+    </ResponseField>
+    <ResponseField name="total_walking_distance" type="float">
+      Sum of all walking segment distances for this route, in meters.
+    </ResponseField>
+    <ResponseField name="route_load" type="integer">
+      Total demand units carried by this vehicle on this route.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="nodes" type="array of Node">
+  The full augmented node list after preprocessing. Customer nodes that were assigned to a nearby station will have `nearby_node_id` set to that station's integer ID. Nodes not within 0.25 km of any station have `nearby_node_id: null` and are served by direct vehicle delivery.
+</ResponseField>
+
+## Response Example
+
+The following is a condensed excerpt showing one route from a real solver run (coordinates trimmed for brevity):
+
+```json
+{
+  "routes": [
+    {
+      "vehicle": {
+        "id": "7806f630-5785-4eeb-87ec-3b736834a442",
+        "name": "Vehicle 1",
+        "capacity": 15,
+        "fixed_cost": 50
+      },
+      "driving_routes": [
+        {
+          "from_node": 0,
+          "to_node": 3,
+          "distance": 2770.6,
+          "duration": 414.9,
+          "coords": [
+            [42.357, -71.06085],
+            [42.35718, -71.06126]
+          ]
+        },
+        {
+          "from_node": 3,
+          "to_node": 0,
+          "distance": 3091.2,
+          "duration": 435.9,
+          "coords": [
+            [42.36514, -71.08312],
+            [42.36509, -71.08277]
+          ]
+        }
+      ],
+      "walking_routes": [
+        {
+          "node": {
+            "id": "cd042026-c2cd-4168-97b2-940b27edc93b",
+            "name": "Customer 1",
+            "address": "Timothy J. Toomey, Jr. Park",
+            "lat": 42.3665529,
+            "lng": -71.0807375,
+            "nearby_node_id": 4,
+            "load": 6,
+            "working_time": 41
+          },
+          "coords": [
+            [42.36514, -71.08312],
+            [42.36511, -71.08291]
+          ],
+          "distance": 325.7,
+          "duration": 234.5,
+          "station_id": 4
+        }
+      ],
+      "stops": [
+        {
+          "id": "0",
+          "name": "Main Depot",
+          "address": "Moakley Library",
+          "lat": 42.3568568,
+          "lng": -71.0609706,
+          "nearby_node_id": null,
+          "load": 0,
+          "working_time": 0
+        },
+        {
+          "id": 4,
+          "name": "EZ Parking 4",
+          "lat": 42.3651988,
+          "lng": -71.0831014
+        },
+        {
+          "id": "0",
+          "name": "Main Depot",
+          "address": "Moakley Library",
+          "lat": 42.3568568,
+          "lng": -71.0609706,
+          "nearby_node_id": null,
+          "load": 0,
+          "working_time": 0
+        }
+      ],
+      "total_driving_time": 850.8,
+      "total_driving_distance": 5861.8,
+      "total_walking_time": 477.2,
+      "total_walking_distance": 662.8,
+      "route_load": 15
+    }
+  ],
+  "nodes": [
+    {
+      "id": "0",
+      "name": "Main Depot",
+      "address": "Moakley Library",
+      "lat": 42.3568568,
+      "lng": -71.0609706,
+      "nearby_node_id": null,
+      "load": 0,
+      "working_time": 0
+    },
+    {
+      "id": "cd042026-c2cd-4168-97b2-940b27edc93b",
+      "name": "Customer 1",
+      "address": "Timothy J. Toomey, Jr. Park",
+      "lat": 42.3665529,
+      "lng": -71.0807375,
+      "nearby_node_id": 4,
+      "load": 6,
+      "working_time": 41
+    }
+  ]
+}
+```
+
+## Error Responses
+
+<Tabs>
+  <Tab title="422 — Distance Validation">
+    Returned when any customer node is more than 100 km from the depot (node `id="0"`). The response identifies the offending node by name and reports the actual distance:
+
+    ```json
+    {
+      "detail": "Distance limit exceeded. Node 'Customer 1' is 143.2 km away from the Depot."
+    }
+    ```
+
+    This check runs before any external API calls are made.
+  </Tab>
+  <Tab title="422 — Pydantic Validation">
+    Returned when the request body does not match the expected schema — for example, a missing required field or an incorrect type:
+
+    ```json
+    {
+      "detail": [
+        {
+          "loc": ["body", "nodes", 0, "lat"],
+          "msg": "field required",
+          "type": "value_error.missing"
+        }
+      ]
+    }
+    ```
+  </Tab>
+  <Tab title="200 — No Feasible Solution">
+    If OR-Tools cannot find a feasible solution (e.g. total demand exceeds fleet capacity), the endpoint returns HTTP 200 with an empty `routes` array:
+
+    ```json
+    {
+      "routes": [],
+      "nodes": [...]
+    }
+    ```
+
+    This is not an error — it indicates the problem as defined has no valid routing plan under the given constraints.
+  </Tab>
+</Tabs>
+
+## Processing Pipeline
+
+When a valid request is received, the endpoint executes the following steps in order:
+
+<Steps>
+  <Step title="Distance validation">
+    `node_distance_checker()` computes the haversine distance from each customer node to the depot. Any node beyond 100 km raises HTTP 422 immediately.
+  </Step>
+  <Step title="Auto-hub generation (optional)">
+    If `use_auto_hubs = true`, `generate_hubs()` runs K-Means with `n_clusters=2` on the customer coordinates and appends the resulting centroids to the stations list as synthetic hub candidates.
+  </Step>
+  <Step title="Station assignment">
+    `determine_nearby_stations()` assigns each customer node to the nearest station within a 0.25 km radius. Nodes with no station in range receive `nearby_node_id = null` and are served by direct vehicle delivery.
+  </Step>
+  <Step title="VRP data preparation">
+    `prepare_vrp_data()` builds the consolidated node list (depot + customers + assigned stations) and computes per-node demand vectors for the OR-Tools model.
+  </Step>
+  <Step title="Distance/duration matrix">
+    `get_vehicle_matrix()` calls the OpenRouteService Matrix API to obtain real-world driving times and distances between all nodes. The resulting matrices are passed to the solver.
+  </Step>
+  <Step title="OR-Tools optimization">
+    `solve_vrp()` runs Google OR-Tools Capacitated VRP on the duration matrix, respecting vehicle capacity constraints and minimizing total travel time. Returns ordered node indices for each vehicle.
+  </Step>
+  <Step title="Route geometry">
+    `get_vehicle_route_geometry()` fetches the real driving polyline for each inter-stop segment via OpenRouteService Directions. `get_walking_route_geometry()` fetches the walking polyline from each station to its assigned customers.
+  </Step>
+  <Step title="Response assembly">
+    Routes with ≤ 2 stops (depot → depot only) are discarded. The remaining routes are assembled into the full response with all driving and walking segments, statistics, and augmented node list.
+  </Step>
+</Steps>

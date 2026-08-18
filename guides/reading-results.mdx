@@ -1,0 +1,121 @@
+---
+title: "Read and Export Optimization Results"
+sidebarTitle: "Reading Results"
+description: "Understand every field in the results panel — vehicle summary cards, stop timeline tables, walking sub-rows, unassigned nodes, and CSV export options."
+---
+
+Once the backend returns a successful response, the input form is replaced by the **Results Panel** — a scrollable list of vehicle cards followed by export controls at the bottom. Each card presents a complete picture of one vehicle's route: a header with load utilization, two summary blocks for driving and walking totals, and a detailed stop-by-stop timeline table. Routes start at **06:00** and all times cascade forward from that anchor.
+
+## Vehicle Summary Cards
+
+Every optimized vehicle that was assigned at least one stop gets its own card. The dark header row shows the vehicle name, its internal ID, and a load indicator in the top-right corner.
+
+```
+Vehicle 1                          Total Load
+ID: <uuid>              MAPS 🚚    15 / 15
+```
+
+The load indicator displays `route_load / vehicle.capacity`. When the numerator equals the denominator the vehicle is fully loaded; partial loads are normal and expected when OR-Tools drops nodes below the penalty threshold.
+
+### Summary Blocks
+
+Below the header, two metric blocks sit side by side:
+
+<CardGroup cols={2}>
+  <Card title="Driving Summary" icon="truck">
+    **Total driving distance** in kilometers (`total_driving_distance / 1000`) and **total driving time** formatted as `HH:MM hrs` or `MM min`. These values represent the sum of all road-network segments returned by ORS for the vehicle's route.
+  </Card>
+  <Card title="Walking Summary" icon="person-walking">
+    **Total walking distance** (`total_walking_distance × 2 / 1000` km) and **total walking time** (`total_walking_time × 2`), both doubled to reflect a delivery-person round-trip from station to customer and back. This block is hidden entirely when the vehicle has no walking segments.
+  </Card>
+</CardGroup>
+
+<Note>
+  Walking distance and time are multiplied by **2** in the UI because the delivery person must walk from the parking station to the customer and return to the vehicle. The raw values stored in `total_walking_distance` and `total_walking_time` are one-way figures from ORS.
+</Note>
+
+## Stop Timeline Table
+
+The timeline table lists every stop in the vehicle's route from departure at the depot through the return trip, with one row per main stop. All times are clock-formatted in 12-hour notation (e.g. `08:45`).
+
+| Column | Description |
+|---|---|
+| `#` | Zero-based stop index in the route sequence |
+| `Type` | `DEPOT`, `HUB`, or `STOP` |
+| `Location Name` | Node name in bold, address in smaller grey text below |
+| `Accum. Dist.` | Cumulative driving distance from the depot in km |
+| Package icon | Demand (load units) at this stop |
+| `Transp. Duration` | Travel time from the **previous** stop; `--` for the first depot row |
+| `Arrival` | Clock time when the vehicle arrives; `--` for the first depot row |
+| `Departure` | Clock time when the vehicle leaves; `--` for the final depot return row |
+| `Service Time` | Minutes spent working at the stop (`working_time` field); `--` for DEPOT and HUB rows |
+
+Row background colors communicate the stop type at a glance:
+
+- **Blue row** — DEPOT (start/end of route)
+- **Yellow-tinted row** — HUB (EZ Parking station; vehicle waits while deliveries are made on foot)
+- **White row** — regular customer STOP
+
+## Walking Sub-Rows
+
+When a vehicle visits an EZ Parking station (a HUB row), the stops served on foot from that hub are rendered as **indented sub-rows** directly below the HUB row. These `↳ WALKING` rows share the same columns as main rows but with a few differences:
+
+- **`#` column** shows `↳` instead of an index
+- **`Accum. Dist.`** shows `+ X.XX km (x2)` — the one-way walk distance with the round-trip multiplier noted
+- **`Arrival`** and **`Departure`** are the clock times for that individual customer walk leg
+- Time is computed sequentially: each walk leg begins when the previous walk leg's departure time ends, so the vehicle accumulates waiting time for the full station-visit duration
+
+<Tip>
+  The HUB row's `Departure` time reflects when the vehicle leaves after **all** walking legs are complete, not just the first customer. Check the last walking sub-row's `Departure` to see when the delivery person returns to the vehicle.
+</Tip>
+
+## Unassigned Nodes Panel
+
+If OR-Tools could not fit one or more customer nodes into any vehicle route, they appear in a **red-bordered panel** at the bottom of the results list, titled **Unassigned Nodes (N)**.
+
+Each unassigned node shows its name, address, and load. A node is unassigned when the cost of routing to it exceeds the solver's drop penalty of 10,000 time-units — this typically happens when:
+
+- **All vehicles are at capacity** and the remaining demand cannot fit in any route
+- **A single node's demand exceeds every vehicle's capacity**, making it physically impossible to serve
+- **The node is geographically isolated**, making its inclusion more costly than the penalty
+
+<Warning>
+  Unassigned nodes represent real customers that will **not** be served by the generated routes. Review them carefully before acting on the results. To resolve unassigned nodes: add one or more vehicles, increase vehicle capacities, or reduce demand values where appropriate.
+</Warning>
+
+## Exporting Results
+
+Three export actions are available at the bottom of the results panel:
+
+<Tabs>
+  <Tab title="Export Raw Nodes">
+    Clicking **Export Raw Nodes** downloads `nodes_generated.csv` — a comma-separated file containing the complete node list as processed by the backend, including any `nearby_node_id` assignments that the proximity step added.
+
+    **Columns:** `name`, `address`, `lat`, `lng`, `load`, `working_time`
+
+    This file is useful for auditing geocoding results or re-importing a corrected node set on a subsequent run.
+  </Tab>
+  <Tab title="Export Routing Table">
+    Clicking **Export Routing Table** downloads `routing_results_table.csv` — a row-per-stop export of the full stop timeline, including walking sub-rows.
+
+    **Columns:** `Vehicle`, `Stop #`, `Type`, `Location Name`, `Accum. Dist. (km)`, `Load`, `Transp. Duration`, `Arrival`, `Departure`, `Service Time`
+
+    Walking sub-rows are included with `↳` in the `Stop #` column and `WALKING` in the `Type` column, matching the visual table exactly.
+  </Tab>
+  <Tab title="Open in Google Maps">
+    Each vehicle card has a **MAPS** button in its header. Clicking it opens a new browser tab (or the Google Maps app on mobile) with a driving directions URL pre-populated with:
+    - **Origin:** depot coordinates
+    - **Destination:** depot coordinates (return trip)
+    - **Waypoints:** all intermediate stops as `lat,lng` pairs
+
+    The URL uses the `https://www.google.com/maps/dir/?api=1&...` deep-link format with `travelmode=driving`.
+
+    <Warning>
+      Google Maps supports a maximum of **9 intermediate waypoints** in a single directions URL. If a vehicle route has more than 9 intermediate stops, the UI will show an alert noting that Google Maps may truncate the route, but the first 9 waypoints will be rendered correctly.
+    </Warning>
+  </Tab>
+</Tabs>
+
+## Return to Home
+
+The **Return to Home** button appears in the top-right corner of the sidebar header whenever results are displayed. Clicking it calls `setRouteData(null)`, which clears the optimization response and restores the input form with your original nodes and vehicles still in place — so you can adjust parameters and re-run without re-entering data from scratch.

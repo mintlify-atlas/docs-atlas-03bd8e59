@@ -1,0 +1,104 @@
+---
+title: "Enter Nodes and Vehicles for Route Optimization"
+sidebarTitle: "Input Data"
+description: "Learn how to define your depot, customer stops, and fleet in the left sidebar before running the Two-Echelon VRP optimizer."
+---
+
+The left sidebar is the primary input panel for every optimization run. Before you can calculate routes, you need to define three things: your working region (so the geocoder looks in the right city), at least one depot node plus one or more customer nodes, and at least one vehicle. Each section of the sidebar feeds directly into the solver — nothing is submitted until you click **Calculate Routes**.
+
+## Step 1: Set Your Working Region
+
+The **Working Region** panel sits at the top of the Nodes section and controls two things at once: where the interactive map is centered, and which city/country context is appended to every Nominatim geocoding query. Getting this right before you add addresses prevents ambiguous results when a street name exists in multiple cities.
+
+### Quick Jump to Region
+
+Use the **Quick Jump to Region** dropdown to snap the map and geocoding context to one of ten preset cities in a single click:
+
+| Preset Name      | City          | Country        |
+|------------------|---------------|----------------|
+| Cambridge, MA    | Cambridge     | United States  |
+| Mexico City      | Mexico City   | Mexico         |
+| Madrid           | Madrid        | Spain          |
+| Buenos Aires     | Buenos Aires  | Argentina      |
+| Sao Paulo        | Sao Paulo     | Brazil         |
+| Lima             | Lima          | Peru           |
+| Bogota           | Bogota        | Colombia       |
+| Santiago         | Santiago      | Chile          |
+| Quito            | Quito         | Ecuador        |
+| Caracas          | Caracas       | Venezuela      |
+
+Selecting a preset instantly pans the map to that city's coordinates and sets the **City** and **Country** fields used by the geocoder. If your target city is not in the list, type directly into the **City (Manual override)** and **Country (Manual override)** text fields instead — these values are appended to every address query sent to Nominatim.
+
+<Tip>
+  Set the working region *before* adding your first node. The geocoder appends the city and country to every address string, so changing the region after geocoding will not retroactively update existing coordinates.
+</Tip>
+
+## Step 2: Add Nodes
+
+A "node" is any location the optimizer must consider — either the depot where vehicles start and end, or a customer stop that requires a delivery. Every optimization run needs at minimum one depot and one customer.
+
+<Steps>
+  <Step title="Add the Depot (row 0)">
+    Click **+ Add Node** to create the first node. Row 0 is automatically designated as the **Depot** and is marked with a blue left border and a 📍 icon. Enter a descriptive **Name** (e.g., "Main Warehouse") and the full street **Address**. The depot does not have Load or Working Time fields — those apply only to customer stops.
+  </Step>
+  <Step title="Geocode the depot address">
+    Click the **Search Coordinates** button beneath the address field. The app calls the `/geocode` endpoint, which forwards the query to Nominatim with your configured city and country appended. On success, the button turns into a green **Geocoded** badge and the latitude/longitude values appear in monospace below it. If no match is found, a red error message is shown — try a more specific address or adjust the City/Country override.
+  </Step>
+  <Step title="Add customer nodes">
+    Click **+ Add Node** for each delivery stop. Every node added after the first is automatically labeled as a customer (👤 Customer 1, Customer 2, …). You can add as many customer nodes as you need; each appears as its own card in the list.
+  </Step>
+  <Step title="Fill in each customer's details">
+    For each customer node, complete all four fields: **Name**, **Address**, **Load**, and **Working Time**. Name and Address are free-text strings. Load is the demand in units that will be subtracted from whichever vehicle services this stop. Working Time is the number of minutes the vehicle must remain parked at the stop (service time). Both numeric fields default to `0`.
+  </Step>
+  <Step title="Geocode each customer address">
+    Click **Search Coordinates** on each customer card individually. Coordinates are not shared between nodes — each must be resolved separately. Once geocoded, the coordinates display beneath the button and the node is ready for submission.
+  </Step>
+</Steps>
+
+### Node Fields Reference
+
+| Field         | Type    | Required | Description                                                                                 |
+|---------------|---------|----------|---------------------------------------------------------------------------------------------|
+| `name`        | string  | Yes      | Display name for the node, shown on the map marker and in the results table.                |
+| `address`     | string  | Yes      | Street address used for geocoding. Include building number and street for best accuracy.    |
+| `load`        | integer | Yes (customers) | Demand units consumed from the assigned vehicle's capacity. Must be ≥ 0. Depot is always 0. |
+| `working_time`| integer | No       | Service time in minutes the vehicle spends at this stop before proceeding. Defaults to 0.   |
+
+<Note>
+  Editing the address field of an already-geocoded node clears its coordinates automatically and resets the button back to **Search Coordinates**. Re-geocode after any address change.
+</Note>
+
+## Step 3: Add Vehicles
+
+The **Vehicles** section below the nodes list defines the fleet available to the optimizer. Each vehicle represents a physical truck or courier that can be dispatched from the depot. The solver chooses which vehicles to use based on their capacity and fixed cost relative to the total demand.
+
+Click **+ Add Vehicle** to add a vehicle card, then fill in the three fields:
+
+- **Name** — A label for the vehicle (e.g., "Van 1", "Large Truck"). Shown in the results table and on the map.
+- **Capacity** — The maximum total load units this vehicle can carry across all its stops. The default is `10`.
+- **Fixed Cost** — A penalty applied any time this vehicle is dispatched. Higher fixed costs make the solver prefer to consolidate stops onto fewer vehicles rather than deploying additional ones unnecessarily.
+
+### Vehicle Fields Reference
+
+| Field        | Type    | Required | Description                                                                                          |
+|--------------|---------|----------|------------------------------------------------------------------------------------------------------|
+| `name`       | string  | Yes      | Human-readable label for the vehicle, used in route results and CSV export.                          |
+| `capacity`   | integer | Yes      | Maximum sum of node loads this vehicle may carry on a single route. Must be > 0.                     |
+| `fixed_cost` | integer | Yes      | Cost incurred each time this vehicle is used. Influences optimizer vehicle-selection trade-offs.     |
+
+You can remove any vehicle (except the last one) using the red trash icon on its card. The solver requires at least one vehicle to proceed.
+
+## Validation
+
+The **Calculate Routes** button is disabled automatically until all of the following conditions are met:
+
+- At least **2 nodes** are present (1 depot + 1 customer minimum)
+- At least **1 vehicle** is defined
+- All nodes have been geocoded (non-empty lat/lng values)
+- All vehicles have a **Capacity > 0**
+
+If any condition is unmet, the button remains greyed out with a `not-allowed` cursor. No partial submissions are possible.
+
+<Tip>
+  You can drag any marker on the map after geocoding to fine-tune its position. Dragging a marker updates the node's `lat` and `lng` values in real time without re-running the geocoder.
+</Tip>

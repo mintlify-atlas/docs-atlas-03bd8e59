@@ -1,0 +1,131 @@
+---
+title: "VRPRequest — Optimization Problem Input Schema"
+sidebarTitle: "VRPRequest"
+description: "VRPRequest is the POST /optimize-routes body, bundling nodes, vehicles, and hub stations into a complete Two-Echelon VRP problem definition for the solver."
+---
+
+`VRPRequest` is the request body accepted by `POST /optimize-routes`. It encapsulates everything the solver needs to define and solve a Two-Echelon Vehicle Routing Problem: the set of stops to visit (including the depot), the fleet of available vehicles, the hub stations that enable last-mile walking delivery, and a flag to optionally auto-generate additional hubs via K-Means clustering. Every field in the request is validated by Pydantic before the server proceeds to distance checking, proximity analysis, matrix computation, and optimization.
+
+## Fields
+
+<ParamField body="nodes" type="Node[]" required>
+  Ordered list of all nodes in the problem. The **first element must be the depot** with `id: "0"`. All subsequent elements are customer delivery stops. The server validates that every non-depot node falls within 100 km of the depot before proceeding.
+
+  Minimum: 2 elements (1 depot + 1 customer).
+</ParamField>
+
+<ParamField body="vehicles" type="Vehicle[]" required>
+  List of available vehicles in the fleet. The optimizer selects which vehicles to deploy based on demand coverage and `fixed_cost` penalties. At least 1 vehicle is required. The solver may leave some vehicles idle if demand can be satisfied by fewer.
+
+  Minimum: 1 element.
+</ParamField>
+
+<ParamField body="stations" type="Station[]" required>
+  Hub stations to consider for two-echelon routing. During preprocessing, each customer node is checked for proximity to these stations. Any customer within 0.25 km of a station is assigned to that station's hub and served via a walking segment rather than a direct vehicle stop. Supply an empty array `[]` to disable hub-based routing entirely.
+</ParamField>
+
+<ParamField body="use_auto_hubs" type="boolean" default="false">
+  When `true`, the server runs K-Means clustering on the customer coordinates and appends up to 2 auto-generated hub candidates to the stations list before proximity assignment. Auto hubs that fall within 0.1 km of an existing station are discarded. This flag is useful when no pre-configured stations are near your customer cluster.
+</ParamField>
+
+## Constraints
+
+<AccordionGroup>
+  <Accordion title="Node distance limit (100 km)">
+    The `node_distance_checker()` function is called before any other processing step. It iterates over every non-depot node and calculates the haversine distance from the depot. If any node is farther than **100 km** from the depot, the server raises a `ValueError` and returns an error response. This prevents degenerate matrix calls to OpenRouteService.
+
+    ```
+    ValueError: Distance limit exceeded. Node 'Customer X' is 142.3 km away
+    from the Depot. Maximum allowed is 100 km.
+    ```
+  </Accordion>
+  <Accordion title="Minimum node count">
+    The `nodes` array must contain at least **2 elements**: the depot (index 0) plus at least one customer stop. Submitting only the depot with no customers produces no meaningful routes.
+  </Accordion>
+  <Accordion title="Minimum vehicle count">
+    The `vehicles` array must contain at least **1 vehicle**. The optimizer cannot assign routes with an empty fleet.
+  </Accordion>
+  <Accordion title="Depot position">
+    The depot must be the **first element** in the `nodes` array. The solver hard-codes `depot=0` as the start/end index for all vehicle routes. Placing a customer node at index 0 will cause the depot to be misidentified, producing incorrect routes.
+  </Accordion>
+</AccordionGroup>
+
+## Full Request Example
+
+The example below shows a complete `VRPRequest` with 1 depot, 3 customers, 2 vehicles, and 2 stations. One customer (`Customer 1`) is near EZ Parking 4, so the server will assign it a walking segment during optimization.
+
+```json VRPRequest
+{
+  "nodes": [
+    {
+      "id": "0",
+      "name": "Main Depot",
+      "address": "Moakley Library",
+      "lat": 42.3568568,
+      "lng": -71.0609706,
+      "load": 0,
+      "working_time": 0
+    },
+    {
+      "id": "cd042026-c2cd-4168-97b2-940b27edc93b",
+      "name": "Customer 1",
+      "address": "Timothy J. Toomey, Jr. Park",
+      "lat": 42.3665529,
+      "lng": -71.0807375,
+      "load": 6,
+      "working_time": 41
+    },
+    {
+      "id": "16ac2ea7-fb2e-4ace-a432-ffe6a08b0031",
+      "name": "Customer 4",
+      "address": "Seaport",
+      "lat": 42.34465252870443,
+      "lng": -71.06411933898927,
+      "load": 1,
+      "working_time": 10
+    },
+    {
+      "id": "3d4e1c7b-e3f0-428b-b3bc-14fb102d2ed9",
+      "name": "Customer 3",
+      "address": "Cambridge Public Library",
+      "lat": 42.36266634158045,
+      "lng": -71.0987949371338,
+      "load": 2,
+      "working_time": 96
+    }
+  ],
+  "vehicles": [
+    {
+      "id": "7806f630-5785-4eeb-87ec-3b736834a442",
+      "name": "Vehicle 1",
+      "capacity": 15,
+      "fixed_cost": 50
+    },
+    {
+      "id": "5547bbea-dc89-47a7-8bdc-2f0e2fdf02cc",
+      "name": "Vehicle 3",
+      "capacity": 12,
+      "fixed_cost": 40
+    }
+  ],
+  "stations": [
+    {
+      "id": 4,
+      "name": "EZ Parking 4",
+      "lat": 42.3651988,
+      "lng": -71.0831014
+    },
+    {
+      "id": 5,
+      "name": "EZ Parking 5",
+      "lat": 42.3630885,
+      "lng": -71.0913624
+    }
+  ],
+  "use_auto_hubs": false
+}
+```
+
+<Tip>
+  Set `use_auto_hubs: true` when your delivery area has no pre-configured stations nearby. The server will attempt to position up to 2 K-Means centroids among your customer cluster to create hub candidates for the proximity check.
+</Tip>

@@ -1,0 +1,108 @@
+---
+title: "GET /geocode — Address Geocoding via Nominatim"
+sidebarTitle: "GET /geocode"
+description: "Geocodes a free-text address string using the Nominatim OpenStreetMap API. Returns up to 5 candidate results with display name, latitude, and longitude."
+---
+
+The `/geocode` endpoint accepts a free-text address query and resolves it to geographic coordinates using the Nominatim OpenStreetMap search API. It returns up to five candidate results, each with a full display name and decimal-degree coordinates. The React frontend calls this endpoint when a user types a location into the address search field on the `LocationForm` component, presenting the results as a dropdown for the user to select from.
+
+## Request
+
+**Method:** `GET`  
+**Path:** `/geocode`  
+**Auth:** None
+
+### Query Parameters
+
+<ParamField query="q" type="string" required>
+  The address string to geocode. In practice the frontend appends city and country context to improve result precision — for example: `"MIT Center for Transportation Cambridge United States"`. Special characters (`.`, `,`, `;`, `-`) are stripped from the query before it is forwarded to Nominatim.
+</ParamField>
+
+## Response Schema
+
+<ResponseField name="results" type="array" required>
+  Array of up to 5 geocoding results ordered by Nominatim relevance score.
+
+  <Expandable title="Result object fields">
+    <ResponseField name="name" type="string">
+      Full display name returned by Nominatim, including street number, road, city, county, state, postal code, and country.
+    </ResponseField>
+    <ResponseField name="lat" type="float">
+      Latitude of the result in decimal degrees (WGS 84).
+    </ResponseField>
+    <ResponseField name="lng" type="float">
+      Longitude of the result in decimal degrees (WGS 84).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example
+
+<CodeGroup>
+```bash cURL
+curl "http://localhost:8000/geocode?q=MIT+Center+for+Transportation+Cambridge"
+```
+
+```js JavaScript (Fetch)
+const params = new URLSearchParams({ q: 'MIT Center for Transportation Cambridge' });
+const res = await fetch(`http://localhost:8000/geocode?${params}`);
+const data = await res.json();
+```
+
+```python Python
+import requests
+r = requests.get(
+    "http://localhost:8000/geocode",
+    params={"q": "MIT Center for Transportation Cambridge"}
+)
+print(r.json())
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "results": [
+    {
+      "name": "MIT Center for Transportation & Logistics, 77, Massachusetts Avenue, Cambridge, Middlesex County, Massachusetts, 02139, United States",
+      "lat": 42.3601,
+      "lng": -71.0942
+    }
+  ]
+}
+```
+
+## Implementation Notes
+
+<AccordionGroup>
+  <Accordion title="Character stripping">
+    Before forwarding the query to Nominatim, the backend removes the characters `.`, `,`, `;`, and `-` from the input. This prevents common punctuation in addresses (e.g. `"St. Paul's"` or `"Avenue, Suite 100"`) from confusing the search parser.
+
+    ```python
+    clean_q = q.strip().translate({ord(c): None for c in ".,;-"})
+    ```
+  </Accordion>
+
+  <Accordion title="Nominatim User-Agent requirement">
+    Nominatim's usage policy requires all requests to include a descriptive `User-Agent` header identifying the application. The backend sets this header to `"vrp-research-app"` on every outgoing request:
+
+    ```python
+    r = requests.get(
+        url,
+        params=params,
+        headers={"User-Agent": "vrp-research-app"}
+    )
+    ```
+
+    Omitting this header may result in HTTP 403 errors from the Nominatim API.
+  </Accordion>
+
+  <Accordion title="Result limit">
+    The backend always takes at most the first 5 items from the Nominatim response (`data[:5]`), regardless of how many matches Nominatim returns. Results are ordered by Nominatim's internal relevance ranking.
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+  Nominatim is a public service with rate limits. Avoid calling this endpoint in automated loops or at high frequency. For production deployments, consider self-hosting a Nominatim instance or switching to a commercial geocoding provider.
+</Warning>

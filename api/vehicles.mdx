@@ -1,0 +1,112 @@
+---
+title: "GET /vehicles — List Configured Vehicles"
+sidebarTitle: "GET /vehicles"
+description: "Returns the server-side list of pre-seeded vehicles. Empty by default — vehicles are managed client-side in the React frontend and submitted with the optimization request."
+---
+
+The `/vehicles` endpoint returns the list of vehicles that have been pre-configured in the backend's `main.py` file. In the default installation this list is empty — all sample vehicle definitions in the source are commented out — so the endpoint returns an empty array. Like nodes, vehicles are typically created and managed entirely on the client side in the React frontend, then submitted as part of the `POST /optimize-routes` request body.
+
+This endpoint supports server-side seeding: if an operator uncomments or adds vehicle entries in `main.py`, those vehicles will be returned here and can be used to pre-populate the frontend's vehicle list on startup.
+
+## Request
+
+**Method:** `GET`  
+**Path:** `/vehicles`  
+**Auth:** None  
+**Parameters:** None
+
+## Response Schema
+
+Returns a JSON array of `Vehicle` objects. Returns `[]` if no vehicles are configured server-side.
+
+<ResponseField name="id" type="string" required>
+  Unique identifier for the vehicle. Typically a UUID string generated with `str(uuid.uuid4())`.
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  Human-readable label for the vehicle (e.g. `"Vehicle 1"`).
+</ResponseField>
+
+<ResponseField name="capacity" type="integer" required>
+  Maximum load units this vehicle can carry. The OR-Tools solver uses this as a hard capacity constraint.
+</ResponseField>
+
+<ResponseField name="fixed_cost" type="integer" required>
+  Fixed cost incurred whenever this vehicle is deployed, regardless of the route length. Used by the solver to minimize total fleet cost.
+</ResponseField>
+
+## Example
+
+<CodeGroup>
+```bash cURL
+curl http://localhost:8000/vehicles
+```
+
+```js JavaScript (Fetch)
+const res = await fetch('http://localhost:8000/vehicles');
+const vehicles = await res.json();
+// vehicles => []
+```
+
+```python Python
+import requests
+r = requests.get("http://localhost:8000/vehicles")
+print(r.json())  # []
+```
+</CodeGroup>
+
+### Response (default — no vehicles configured)
+
+```json
+[]
+```
+
+### Response (with vehicles seeded in main.py)
+
+```json
+[
+  {
+    "id": "7806f630-5785-4eeb-87ec-3b736834a442",
+    "name": "Vehicle 1",
+    "capacity": 15,
+    "fixed_cost": 50
+  },
+  {
+    "id": "5547bbea-dc89-47a7-8bdc-2f0e2fdf02cc",
+    "name": "Vehicle 3",
+    "capacity": 12,
+    "fixed_cost": 40
+  }
+]
+```
+
+<Note>
+  In the current implementation, vehicles are managed client-side. The React frontend allows users to define vehicles interactively, and those definitions are submitted directly with the `POST /optimize-routes` request. The `GET /vehicles` endpoint is called only on startup to check for server-seeded vehicles.
+</Note>
+
+## Seeding Vehicles Server-Side
+
+To pre-populate vehicles, uncomment and edit the `vehicles` list in `backend-python/app/main.py`. Each entry must follow the `Vehicle` schema:
+
+```python
+import uuid
+
+vehicles = [
+    {
+        "id": str(uuid.uuid4()),
+        "name": "Vehicle 1",
+        "capacity": 15,
+        "fixed_cost": 50
+    },
+    {
+        "id": str(uuid.uuid4()),
+        "name": "Vehicle 2",
+        "capacity": 8,
+        "fixed_cost": 30
+    },
+]
+```
+
+<Tip>
+  The solver selects a subset of the provided vehicles to minimize total fixed cost plus travel time. Providing more vehicles than necessary gives the solver more flexibility but does not guarantee all vehicles will be used — routes with only a depot-to-depot trip are filtered out of the final response.
+</Tip>

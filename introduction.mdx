@@ -1,0 +1,50 @@
+---
+title: "VRP Solution: Optimize Urban Delivery Routes"
+sidebarTitle: "Introduction"
+description: "VRP Solution is a full-stack Two-Echelon VRP solver for urban logistics teams, combining OR-Tools optimization with real-world road routing and an interactive map UI."
+---
+
+VRP Solution is an end-to-end platform for solving the **Two-Echelon Vehicle Routing Problem (2E-VRP)** — the challenge of planning city deliveries where large vehicles service intermediate hubs and couriers complete the last-mile leg on foot. The system accepts a depot, a set of customer nodes, and a fleet of vehicles, then returns optimized driving routes annotated with real road geometries, walking segments to nearby hub stations, and per-route statistics. Everything runs in a browser: no GIS software or separate solver license required.
+
+## Key Capabilities
+
+<CardGroup cols={2}>
+  <Card title="OR-Tools Optimization" icon="gears">
+    Google's production-grade OR-Tools CP-SAT solver finds capacity-feasible vehicle routes while minimizing total duration. Each vehicle carries a fixed cost and a hard capacity ceiling; unserved nodes receive a configurable penalty instead of causing infeasibility.
+  </Card>
+  <Card title="Real-World Road Routing" icon="road">
+    Every driving leg and walking segment is resolved to an actual road polyline through the OpenRouteService API — `driving-car` for vehicles and `foot-hiking` for last-mile pedestrian legs — so travel times reflect real-world conditions, not straight-line estimates.
+  </Card>
+  <Card title="Interactive Leaflet Map" icon="map">
+    React-Leaflet renders color-coded routes, depot and customer markers, and hub station pins on an OpenStreetMap base layer. Clicking any marker on the map surfaces node details, and the map re-renders instantly whenever routes are recalculated.
+  </Card>
+  <Card title="CSV Import & Export" icon="file-csv">
+    Nodes and vehicles can be bulk-loaded from a CSV file via the Sidebar panel, and optimized route results can be exported to CSV for downstream analysis in Excel, Python, or any BI tool. No manual re-entry required between solver runs.
+  </Card>
+</CardGroup>
+
+## Who Is This For?
+
+VRP Solution targets three primary audiences:
+
+- **Logistics researchers** prototyping 2E-VRP instances who need a reproducible solver environment with real OSM road data rather than synthetic distance matrices.
+- **Fleet managers and urban delivery operators** evaluating route plans for small-to-medium fleets (typically 2–10 vehicles) operating within a metropolitan area.
+- **Urban planners** studying the placement of micro-hub or cargo-bike transfer stations and their effect on total delivery distance and vehicle utilization.
+
+The solver enforces a maximum service radius of 100 km from the depot, making it best suited for intra-city or regional distribution scenarios rather than long-haul logistics.
+
+## Key Concepts
+
+Before diving into the quickstart or API reference, the following concept pages provide essential background:
+
+- [Vehicle Routing Problem](/concepts/vrp) — what VRP is, why it is NP-hard, and how OR-Tools approaches it
+- [Nodes, Vehicles & Stations](/concepts/nodes-vehicles-stations) — the three data primitives VRP Solution uses and their Pydantic schemas
+- [Two-Echelon Routing](/concepts/two-echelon) — how the 2E-VRP splits delivery into a trunk leg and a last-mile leg via intermediate hubs
+
+## EZ Parking Hub Stations
+
+The backend ships with five pre-configured hub stations clustered in **Cambridge, MA**, all named **EZ Parking 1–5**. These stations represent real parking locations and serve as the transfer points where vehicles drop consolidated loads for pedestrian couriers to complete the last metre. Their coordinates are hard-coded in `backend-python/app/main.py` and are returned by the `GET /stations` endpoint on startup.
+
+<Note>
+  When you load the frontend for the first time, the map centers on Cambridge, MA (latitude 42.36, longitude -71.0805) and all five EZ Parking stations are immediately visible as blue pins. You can add your own stations or use the `use_auto_hubs` flag to generate K-Means cluster centroids automatically.
+</Note>

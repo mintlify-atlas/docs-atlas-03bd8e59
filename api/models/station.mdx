@@ -1,0 +1,99 @@
+---
+title: "Station — Parking Hub Intermediate Stop"
+sidebarTitle: "Station"
+description: "Station defines an EZ Parking hub where vehicles stop so couriers walk the last delivery leg to nearby customers, enabling two-echelon routing."
+---
+
+A `Station` represents a parking hub in the two-echelon routing architecture. Rather than driving directly to every customer address — which may be on a pedestrian street, in a dense block, or otherwise difficult to access by vehicle — the 2E-VRP model routes vehicles to a known station first. A courier then walks from that station hub to each nearby customer. This second echelon (the walking leg) is only triggered when a customer node falls within the 0.25 km proximity radius of a station during preprocessing. Stations have no `load` or `capacity` fields; they are purely geographic waypoints that anchor the walking segments of a route.
+
+## Fields
+
+<ResponseField name="id" type="integer" required>
+  Numeric identifier for this station. Used as the foreign key value stored in `Node.nearby_node_id` when a customer is assigned to this hub during proximity analysis. Must be a unique integer across all stations in the request.
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  Human-readable label for the hub. The server checks `"EZ Parking"` in the node name string when deciding whether to generate walking segments — stations whose names do not contain `"EZ Parking"` will not trigger walking route geometry calls. Use the standard naming convention to ensure correct behavior.
+</ResponseField>
+
+<ResponseField name="lat" type="float" required>
+  Latitude of the station in decimal degrees (WGS 84). Used as the origin coordinate for walking route geometry requests to OpenRouteService.
+</ResponseField>
+
+<ResponseField name="lng" type="float" required>
+  Longitude of the station in decimal degrees (WGS 84). Paired with `lat` to form the hub coordinate.
+</ResponseField>
+
+## Pre-Configured EZ Parking Stations
+
+VRP Solution ships with five pre-configured EZ Parking stations in the Boston/Cambridge area. These are returned by `GET /stations` and are used as the default station list in the reference UI. You can supply these directly in your `VRPRequest.stations` array or substitute your own hub coordinates.
+
+<CardGroup cols={2}>
+  <Card title="EZ Parking 1" icon="square-parking">
+    **ID:** 1  
+    **Lat:** 42.3607667  
+    **Lng:** -71.0705503
+  </Card>
+  <Card title="EZ Parking 2" icon="square-parking">
+    **ID:** 2  
+    **Lat:** 42.3576735  
+    **Lng:** -71.0701434
+  </Card>
+  <Card title="EZ Parking 3" icon="square-parking">
+    **ID:** 3  
+    **Lat:** 42.362705  
+    **Lng:** -71.0820743
+  </Card>
+  <Card title="EZ Parking 4" icon="square-parking">
+    **ID:** 4  
+    **Lat:** 42.3651988  
+    **Lng:** -71.0831014
+  </Card>
+  <Card title="EZ Parking 5" icon="square-parking">
+    **ID:** 5  
+    **Lat:** 42.3630885  
+    **Lng:** -71.0913624
+  </Card>
+</CardGroup>
+
+## Auto-Generated Hubs
+
+When `use_auto_hubs: true` is set in a `VRPRequest`, the server runs K-Means clustering on the customer node coordinates and generates up to 2 additional candidate hubs via the `generate_hubs()` function. These auto hubs are appended to the stations list **before** proximity assignment runs, but they are **not** Pydantic `Station` objects. They are plain Python dicts with the following shape:
+
+```json Auto Hub Dict
+{
+  "id": "auto_hub_0",
+  "lat": 42.36312,
+  "lng": -71.08145,
+  "name": "Auto Hub 0"
+}
+```
+
+<Warning>
+  Auto-generated hub `id` values are strings (e.g., `"auto_hub_0"`), not integers. They will appear in `Node.nearby_node_id` as strings if a customer is assigned to one. They are also filtered for minimum distance — any auto hub generated within 0.1 km of an existing station is discarded to avoid redundancy.
+</Warning>
+
+<Note>
+  Because auto hub names do not contain `"EZ Parking"`, the server will **not** generate walking route geometry for customers assigned to auto hubs in the current implementation. Auto hubs serve as intermediate vehicle stops but do not produce walking segments in the response.
+</Note>
+
+## Example
+
+```json Station Object
+{
+  "id": 4,
+  "name": "EZ Parking 4",
+  "lat": 42.3651988,
+  "lng": -71.0831014
+}
+```
+
+```json Stations Array
+[
+  { "id": 1, "name": "EZ Parking 1", "lat": 42.3607667, "lng": -71.0705503 },
+  { "id": 2, "name": "EZ Parking 2", "lat": 42.3576735, "lng": -71.0701434 },
+  { "id": 3, "name": "EZ Parking 3", "lat": 42.362705,  "lng": -71.0820743 },
+  { "id": 4, "name": "EZ Parking 4", "lat": 42.3651988, "lng": -71.0831014 },
+  { "id": 5, "name": "EZ Parking 5", "lat": 42.3630885, "lng": -71.0913624 }
+]
+```

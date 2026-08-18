@@ -1,0 +1,237 @@
+---
+title: "Route Response — Optimized Route Output Schema"
+sidebarTitle: "RouteResponse"
+description: "POST /optimize-routes returns per-vehicle routes with driving and walking polylines, stop sequences, time and distance totals, and enriched node objects."
+---
+
+The response returned by `POST /optimize-routes` provides everything needed to render an interactive route map and display summary statistics. For each deployed vehicle, the response includes the ordered sequence of stops, driving polylines between each stop pair (sourced from OpenRouteService), walking polylines from hub stations to nearby customers (also from ORS), and aggregated time and distance metrics. The top-level response also returns the full augmented node list — the same nodes sent in the request, but with `nearby_node_id` values now populated wherever the proximity analysis found a matching station.
+
+## Top-Level Response
+
+<ResponseField name="routes" type="Route[]">
+  Array of route objects, one per vehicle that was actually deployed by the optimizer. Vehicles that were available but not used (because all demand was satisfied by other vehicles) do not appear in this array.
+</ResponseField>
+
+<ResponseField name="nodes" type="Node[]">
+  The complete list of nodes from the original request, returned with `nearby_node_id` populated for any customer that was assigned to a station hub during preprocessing. Useful for updating client-side state so the UI can reflect hub assignments without re-fetching.
+</ResponseField>
+
+## Route Object
+
+<Expandable title="Route fields">
+  <ResponseField name="vehicle" type="Vehicle">
+    The vehicle assigned to this route. Contains `id`, `name`, `capacity`, and `fixed_cost` — the same values submitted in the request.
+  </ResponseField>
+
+  <ResponseField name="driving_routes" type="DrivingSegment[]">
+    Ordered list of driving segments that make up this vehicle's road journey. Each segment connects one stop to the next, including the final return leg back to the depot. See [DrivingSegment](#driving-segment) below.
+  </ResponseField>
+
+  <ResponseField name="walking_routes" type="WalkingSegment[]">
+    List of walking segments generated for customers assigned to hub stations along this vehicle's route. One walking segment exists per such customer. May be empty if no customers on this route have a `nearby_node_id`. See [WalkingSegment](#walking-segment) below.
+  </ResponseField>
+
+  <ResponseField name="stops" type="Node[]">
+    Ordered list of stops visited by this vehicle. Always starts and ends with the depot node (`id: "0"`). Intermediate stops include both direct customer visits and station hubs (which appear as station objects with an integer `id`).
+  </ResponseField>
+
+  <ResponseField name="total_driving_time" type="float">
+    Total driving duration for this vehicle's route in **seconds**, summed across all driving segments.
+  </ResponseField>
+
+  <ResponseField name="total_driving_distance" type="float">
+    Total driving distance for this vehicle's route in **meters**, summed across all driving segments.
+  </ResponseField>
+
+  <ResponseField name="total_walking_time" type="float">
+    Total one-way walking duration in **seconds** across all walking segments on this route.
+  </ResponseField>
+
+  <ResponseField name="total_walking_distance" type="float">
+    Total one-way walking distance in **meters** across all walking segments. Note: the frontend doubles this value when displaying round-trip walking distance to the user, since the courier must return to the vehicle after completing the walking deliveries.
+  </ResponseField>
+
+  <ResponseField name="route_load" type="integer">
+    Sum of all customer `load` values assigned to this vehicle. Always less than or equal to the vehicle's `capacity`.
+  </ResponseField>
+</Expandable>
+
+## DrivingSegment
+
+Each object in `driving_routes` describes a single road segment driven by the vehicle between two consecutive stops.
+
+<Expandable title="DrivingSegment fields">
+  <ResponseField name="from_node" type="integer">
+    Index of the origin node in the internal VRP node list (0-based). Index `0` always corresponds to the depot.
+  </ResponseField>
+
+  <ResponseField name="to_node" type="integer">
+    Index of the destination node in the internal VRP node list (0-based).
+  </ResponseField>
+
+  <ResponseField name="distance" type="float">
+    Road distance of this segment in **meters** as returned by OpenRouteService.
+  </ResponseField>
+
+  <ResponseField name="duration" type="float">
+    Driving duration of this segment in **seconds** as returned by OpenRouteService.
+  </ResponseField>
+
+  <ResponseField name="coords" type="array">
+    Array of `[lat, lng]` coordinate pairs forming the polyline for this segment, decoded from the ORS directions response. Render directly with react-leaflet `<Polyline positions={coords} />`. Coordinate arrays can be long (50–100+ points per segment).
+  </ResponseField>
+</Expandable>
+
+## WalkingSegment
+
+Each object in `walking_routes` describes the walking path a courier takes from a hub station to a nearby customer.
+
+<Expandable title="WalkingSegment fields">
+  <ResponseField name="node" type="Node">
+    The customer node being served on foot. Contains the full Node object including `id`, `name`, `address`, `lat`, `lng`, `nearby_node_id`, `load`, and `working_time`.
+  </ResponseField>
+
+  <ResponseField name="coords" type="array">
+    Array of `[lat, lng]` coordinate pairs forming the walking polyline from the station hub to the customer, sourced from the ORS walking/foot-walking profile.
+  </ResponseField>
+
+  <ResponseField name="distance" type="float">
+    One-way walking distance in **meters** from the station to the customer.
+  </ResponseField>
+
+  <ResponseField name="duration" type="float">
+    One-way walking duration in **seconds** from the station to the customer.
+  </ResponseField>
+
+  <ResponseField name="station_id" type="integer">
+    The `id` of the `Station` this walking segment originates from. Matches the `nearby_node_id` value on the customer `node`.
+  </ResponseField>
+</Expandable>
+
+## Condensed Response Example
+
+The example below shows a single-vehicle route with one driving segment and one walking segment. Coordinate arrays are trimmed to 3 points for brevity.
+
+```json Route Response (condensed)
+{
+  "routes": [
+    {
+      "vehicle": {
+        "id": "7806f630-5785-4eeb-87ec-3b736834a442",
+        "name": "Vehicle 1",
+        "capacity": 15,
+        "fixed_cost": 50
+      },
+      "driving_routes": [
+        {
+          "from_node": 0,
+          "to_node": 3,
+          "distance": 2770.6,
+          "duration": 414.9,
+          "coords": [
+            [42.357, -71.06085],
+            [42.35718, -71.06126],
+            [42.36514, -71.08312]
+          ]
+        },
+        {
+          "from_node": 3,
+          "to_node": 0,
+          "distance": 3091.2,
+          "duration": 435.9,
+          "coords": [
+            [42.36514, -71.08312],
+            [42.36509, -71.08277],
+            [42.357, -71.06085]
+          ]
+        }
+      ],
+      "walking_routes": [
+        {
+          "node": {
+            "id": "cd042026-c2cd-4168-97b2-940b27edc93b",
+            "name": "Customer 1",
+            "address": "Timothy J. Toomey, Jr. Park",
+            "lat": 42.3665529,
+            "lng": -71.0807375,
+            "nearby_node_id": 4,
+            "load": 6,
+            "working_time": 41
+          },
+          "coords": [
+            [42.36514, -71.08312],
+            [42.36554, -71.08238],
+            [42.36655, -71.08073]
+          ],
+          "distance": 325.7,
+          "duration": 234.5,
+          "station_id": 4
+        }
+      ],
+      "stops": [
+        {
+          "id": "0",
+          "name": "Main Depot",
+          "address": "Moakley Library",
+          "lat": 42.3568568,
+          "lng": -71.0609706,
+          "nearby_node_id": null,
+          "load": 0,
+          "working_time": 0
+        },
+        {
+          "id": 4,
+          "name": "EZ Parking 4",
+          "lat": 42.3651988,
+          "lng": -71.0831014
+        },
+        {
+          "id": "0",
+          "name": "Main Depot",
+          "address": "Moakley Library",
+          "lat": 42.3568568,
+          "lng": -71.0609706,
+          "nearby_node_id": null,
+          "load": 0,
+          "working_time": 0
+        }
+      ],
+      "total_driving_time": 850.8,
+      "total_driving_distance": 5861.8,
+      "total_walking_time": 477.2,
+      "total_walking_distance": 662.8,
+      "route_load": 15
+    }
+  ],
+  "nodes": [
+    {
+      "id": "0",
+      "name": "Main Depot",
+      "address": "Moakley Library",
+      "lat": 42.3568568,
+      "lng": -71.0609706,
+      "nearby_node_id": null,
+      "load": 0,
+      "working_time": 0
+    },
+    {
+      "id": "cd042026-c2cd-4168-97b2-940b27edc93b",
+      "name": "Customer 1",
+      "address": "Timothy J. Toomey, Jr. Park",
+      "lat": 42.3665529,
+      "lng": -71.0807375,
+      "nearby_node_id": 4,
+      "load": 6,
+      "working_time": 41
+    }
+  ]
+}
+```
+
+<Info>
+  The `stops` array in each route always begins and ends with the depot node. When a vehicle is routed to a hub station rather than directly to a customer, the station object (with only `id`, `name`, `lat`, `lng`) appears in `stops` — not the individual customers served from that hub. The customers themselves appear in `walking_routes[].node`.
+</Info>
+
+<Note>
+  `total_walking_distance` and `total_walking_time` represent **one-way** values per segment. The frontend `RouteStats` component multiplies `total_walking_distance` by 2 when displaying round-trip walking distance to account for the courier's return walk to the vehicle.
+</Note>

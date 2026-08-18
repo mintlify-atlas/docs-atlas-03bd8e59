@@ -1,0 +1,91 @@
+---
+title: "VRP Solution REST API — Endpoint Reference"
+sidebarTitle: "Overview"
+description: "Complete reference for the six REST endpoints exposed by the VRP Solution FastAPI backend, including base URLs, content types, CORS policy, and error handling."
+---
+
+The VRP Solution backend is a FastAPI application that exposes six REST endpoints over HTTP. No authentication is required — the API is designed for internal communication between the React frontend and the Python backend running in the same local or containerized environment. All endpoints return JSON and follow standard HTTP semantics.
+
+## Base URL
+
+The frontend reads the backend origin from the `VITE_API_BASE_URL` environment variable. If that variable is not set, it defaults to `http://localhost:8000`. Set it in a `.env` file at the root of the `frontend/` directory:
+
+```bash
+# frontend/.env
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+For outbound calls from the backend to OpenRouteService, the base URL is configured through `ORS_BASE_URL` in `backend-python/config.py`. This is separate from the API's own listen address.
+
+## Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Backend liveness check — returns `{"status": "healthy"}` |
+| `GET` | `/nodes` | Return the list of pre-seeded delivery nodes configured on the server |
+| `GET` | `/stations` | Return the 5 pre-configured EZ Parking hub stations |
+| `GET` | `/vehicles` | Return the list of pre-seeded vehicles configured on the server |
+| `GET` | `/geocode` | Geocode a free-text address string via Nominatim |
+| `POST` | `/optimize-routes` | Solve the Two-Echelon VRP and return optimized multi-vehicle routes |
+
+## Content-Type
+
+All `POST` requests must include the `Content-Type: application/json` header. The request body must be valid JSON matching the expected Pydantic model. `GET` endpoints do not require a request body.
+
+## CORS
+
+The backend is configured to allow all origins during development:
+
+```python
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+<Warning>
+  The wildcard `allow_origins=["*"]` is intentional for local development. Restrict this to specific origins before deploying to a production environment.
+</Warning>
+
+## Error Handling
+
+FastAPI returns standard HTTP error responses with a JSON body of the form `{"detail": "..."}`.
+
+| Status | Meaning |
+|--------|---------|
+| `422 Unprocessable Entity` | Pydantic validation error or a failed distance check (node too far from depot) |
+| `500 Internal Server Error` | Unhandled exception in a service (e.g. ORS API unavailable) |
+
+Distance validation in `/optimize-routes` raises HTTP 422 with a message like:
+
+```
+Distance limit exceeded. Node 'Customer 1' is 143.2 km away from the Depot.
+```
+
+Any node more than 100 km from the depot (node `id="0"`) is rejected before the solver runs.
+
+## Endpoint Pages
+
+<CardGroup cols={2}>
+  <Card title="GET /health" icon="heart-pulse" href="/api/health">
+    Liveness probe used by the frontend on startup to wait for the backend to become ready.
+  </Card>
+  <Card title="GET /nodes" icon="map-pin" href="/api/nodes">
+    Returns the server-side list of pre-seeded delivery nodes. Empty by default.
+  </Card>
+  <Card title="GET /stations" icon="warehouse" href="/api/stations">
+    Returns the 5 hard-coded EZ Parking hub stations used as second-echelon transfer points.
+  </Card>
+  <Card title="GET /vehicles" icon="truck" href="/api/vehicles">
+    Returns the server-side list of pre-seeded vehicles. Empty by default.
+  </Card>
+  <Card title="GET /geocode" icon="magnifying-glass-location" href="/api/geocode">
+    Geocodes a free-text address via Nominatim and returns up to 5 candidate results.
+  </Card>
+  <Card title="POST /optimize-routes" icon="route" href="/api/optimize-routes">
+    Core solver endpoint — accepts the full problem definition and returns optimized routes with real-world polyline geometry.
+  </Card>
+</CardGroup>

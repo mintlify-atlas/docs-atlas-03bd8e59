@@ -1,0 +1,95 @@
+---
+title: "Using the Interactive Route Map"
+sidebarTitle: "Map View"
+description: "Explore the Leaflet-powered map panel — marker types, color-coded route polylines, walking segments, interactive popups, and live coordinate editing."
+---
+
+The right half of the VRP Solution interface is a persistent **interactive map** powered by [react-leaflet](https://react-leaflet.js.org/) with OpenStreetMap tiles. It is always visible regardless of whether you are entering data or reviewing results — as you add nodes and geocode addresses, markers appear immediately. Once optimization completes, the map overlays color-coded driving routes, dashed walking segments, and station proximity circles on top of the node markers, giving you a spatial overview of the entire delivery plan at a glance.
+
+## Map Markers
+
+Three distinct marker icons are used to represent different entity types:
+
+<CardGroup cols={3}>
+  <Card title="Depot" icon="warehouse">
+    Rendered with a **warehouse icon** (35 × 35 px). Always the node with `id = "0"`. This is the starting and ending point of every vehicle route. The depot marker is **not draggable**.
+  </Card>
+  <Card title="Customer Nodes" icon="store">
+    Rendered with a **grocery store icon** (30 × 30 px). Represents every non-depot delivery stop. Customer markers are **draggable** — dropping one at a new position updates its `lat` and `lng` coordinates live in the application state, which is immediately reflected in the input form.
+  </Card>
+  <Card title="Parking Stations" icon="square-parking">
+    Rendered with a **parking icon** (25 × 25 px). Represents EZ Parking hub stations loaded from the `/stations` endpoint. During data-entry mode all stations are shown. After optimization, stations that are **not part of any route** are hidden; only stations actually visited by a vehicle remain visible.
+  </Card>
+</CardGroup>
+
+<Note>
+  Map tiles are served by **OpenStreetMap** (`https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png`). An active internet connection is required for tiles to load. The map itself — markers, polylines, and popups — works with any data already in memory even if tile loading is slow.
+</Note>
+
+## Route Polylines
+
+After optimization, each vehicle's route is drawn as a series of connected polylines using colors drawn from a fixed palette in round-robin order:
+
+| Vehicle Index | Color |
+|---|---|
+| 1st vehicle | Blue |
+| 2nd vehicle | Red |
+| 3rd vehicle | Green |
+| 4th vehicle | Orange |
+| 5th vehicle | Purple |
+| 6th vehicle | Yellow |
+| 7th vehicle | Pink |
+| 8th vehicle | Cyan |
+| 9th+ vehicle | Repeats from Blue |
+
+### Driving Segments
+
+Each consecutive node pair in a vehicle's route is rendered as a **solid colored polyline** (`weight: 3`, `opacity: 1`). The polyline follows the actual road geometry returned by ORS `/v2/directions/driving-car` — not a straight line between nodes. Segments are drawn individually so that each one carries its own popup.
+
+### Walking Segments
+
+Last-mile walks from an EZ Parking station to a customer are rendered as **dark dashed polylines** (`color: '#444'`, `weight: 5`, `dashArray: "5, 10"`). The dashed styling makes walking legs immediately distinguishable from driving routes even when they overlap. Walking polylines follow foot-path geometry from ORS `/v2/directions/foot-hiking`.
+
+### Station Proximity Circles
+
+When a station appears in an optimized route, a **grey semi-transparent circle** with a **200-metre radius** is drawn around it (`fillColor: 'gray'`, `opacity: 0.25`). This visually communicates the station's service catchment area — customers that fall within this radius were candidates for last-mile walking assignment during the proximity step.
+
+## Interacting with the Map
+
+<AccordionGroup>
+  <Accordion title="Click a driving route segment">
+    Clicking any solid route polyline opens a **popup** anchored to the click point showing:
+    - **Section N** — the segment index within the route
+    - **From:** the departure node name
+    - **To:** the arrival node name
+    - **Distance:** one-way segment distance in km (e.g. `1.34 km`)
+  </Accordion>
+  <Accordion title="Click a station marker">
+    Clicking an EZ Parking marker opens a popup showing the station's **name** and **address**.
+  </Accordion>
+  <Accordion title="Click a customer marker">
+    Clicking a customer (grocery store) marker opens a popup showing:
+    - Node **name** (bold)
+    - Node **address**
+    - Assigned EZ Parking station, if any: `(Assigned to EZ Parking N)`
+    - **Demand:** the node's load value
+  </Accordion>
+  <Accordion title="Drag a customer marker">
+    Customer markers are **draggable**. When you drop a marker at a new position, the `dragend` event fires and the node's `lat` and `lng` values are updated in the React state via `setNodes`. The change is reflected immediately in the input form's coordinate fields. After dragging, re-run optimization to get updated routes based on the new position.
+  </Accordion>
+  <Accordion title="Hover over a walking segment">
+    Hovering over a dashed walking polyline shows a **Leaflet Tooltip** (non-permanent) with:
+    - `Customer walk`
+    - `Distance: X.XX km (Round trip)` — the one-way ORS distance doubled for display
+  </Accordion>
+</AccordionGroup>
+
+## Map Navigation
+
+The map initializes centered on `[42.36, -71.0805]` (Cambridge, MA) at zoom level 14 if no geocoded nodes are present. Once at least one node has valid coordinates, the map centers on the **first node in the list** (the depot).
+
+The **Quick Jump** dropdown in the `LocationForm` component lets you teleport to a pre-configured city. When a region is selected, `MapController` uses Leaflet's `flyTo` method to animate a smooth pan to the city's coordinates at zoom 14. This is particularly useful when starting a new problem in an unfamiliar area — jump to the city first, then geocode addresses relative to the correct regional context.
+
+<Tip>
+  If your nodes are spread across a large area and some markers are off-screen after optimization, use the scroll wheel or pinch gesture to zoom out until all route polylines are visible. There is no "fit bounds" button — zooming out manually gives you the most control over the viewport.
+</Tip>

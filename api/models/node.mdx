@@ -1,0 +1,113 @@
+---
+title: "Node — Delivery Stop or Depot Data Model"
+sidebarTitle: "Node"
+description: "Node represents either the depot (id='0') or a customer delivery stop, carrying coordinates, demand load, and per-stop service time for the VRP optimizer."
+---
+
+Every route in VRP Solution is built from a list of `Node` objects. A node can be one of two things: the **depot** (the origin and return point for every vehicle, identified by `id: "0"`) or a **customer stop** (a delivery destination with a demand load and an optional service time). Both types share the same Pydantic schema, and the distinction is made entirely through the `id` field and the values of `load` and `working_time`. When nodes are submitted to `POST /optimize-routes`, the server enriches them by running proximity analysis — any customer within 0.25 km of a known parking hub has its `nearby_node_id` field populated automatically before optimization begins.
+
+## Fields
+
+<ResponseField name="id" type="string" required>
+  Unique identifier for the node. Use the **reserved value `"0"`** for the depot. All customer nodes should carry a UUID (e.g., generated with `uuid.uuid4()` on the client). The optimizer uses `id: "0"` to locate the depot in the distance matrix and to anchor vehicle start and end positions.
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  Human-readable display name shown in the UI map and in route statistics. Examples: `"Main Depot"`, `"Customer 1"`.
+</ResponseField>
+
+<ResponseField name="address" type="string">
+  Optional free-text address string. Used for display purposes in the sidebar and can be passed to the `/geocode` endpoint to resolve coordinates. Does not affect optimization. Defaults to `null`.
+</ResponseField>
+
+<ResponseField name="lat" type="float" required>
+  Latitude of the node in decimal degrees (WGS 84). Must be a valid geographic coordinate within the 100 km radius limit enforced around the depot.
+</ResponseField>
+
+<ResponseField name="lng" type="float" required>
+  Longitude of the node in decimal degrees (WGS 84). Paired with `lat` to form the coordinate used for matrix calls to OpenRouteService and for haversine distance calculations.
+</ResponseField>
+
+<ResponseField name="nearby_node_id" type="integer">
+  ID of the nearest `Station` within the 0.25 km proximity radius. This field is **set by the server** during the `determine_nearby_stations` preprocessing step — never supply it in your request payload. When populated, it signals the optimizer to route the vehicle to the station hub instead of the customer address directly; a courier then walks the last leg. Defaults to `null`.
+</ResponseField>
+
+<ResponseField name="load" type="integer">
+  Demand units this stop requires. The optimizer ensures no vehicle's cumulative load across its assigned nodes exceeds the vehicle's `capacity`. Set to `0` for the depot. Defaults to `0`.
+</ResponseField>
+
+<ResponseField name="working_time" type="integer">
+  Service time at this stop, expressed in **minutes**. Represents the time a courier spends at the location (unloading, handing off a parcel, obtaining a signature). Added to total route duration during optimization. Set to `0` for the depot. Defaults to `0`.
+</ResponseField>
+
+## Depot vs. Customer Distinction
+
+<Tabs>
+  <Tab title="Depot Rules">
+    The depot is the mandatory first element of every `nodes` array submitted to `POST /optimize-routes`. It must satisfy:
+
+    - `id` is exactly `"0"` — the optimizer hard-codes index 0 as the depot position in the distance matrix
+    - `load` should be `0` — the depot has no demand
+    - `working_time` should be `0` — no service time is spent at the depot
+    - `nearby_node_id` will always be `null` — the server skips proximity assignment for `id == "0"`
+
+    Every vehicle route in the response starts and ends at the depot node.
+  </Tab>
+  <Tab title="Customer Rules">
+    Customer nodes represent individual delivery stops. They must satisfy:
+
+    - `id` is a unique UUID string (not `"0"`)
+    - `load` is a positive integer representing the demand units to be delivered
+    - `working_time` is a non-negative integer representing minutes on-site
+    - `lat`/`lng` must fall within 100 km of the depot (checked by `node_distance_checker`)
+
+    After preprocessing, any customer whose coordinates fall within 0.25 km of a `Station` will have `nearby_node_id` set to that station's `id`. That customer is then served via a walking segment from the hub rather than a direct vehicle visit.
+  </Tab>
+</Tabs>
+
+## Examples
+
+<CodeGroup>
+```json Depot Node
+{
+  "id": "0",
+  "name": "Main Depot",
+  "address": "Moakley Library",
+  "lat": 42.3568568,
+  "lng": -71.0609706,
+  "nearby_node_id": null,
+  "load": 0,
+  "working_time": 0
+}
+```
+
+```json Customer Node
+{
+  "id": "cd042026-c2cd-4168-97b2-940b27edc93b",
+  "name": "Customer 1",
+  "address": "Timothy J. Toomey, Jr. Park",
+  "lat": 42.3665529,
+  "lng": -71.0807375,
+  "nearby_node_id": null,
+  "load": 6,
+  "working_time": 41
+}
+```
+
+```json Customer Node (after preprocessing)
+{
+  "id": "cd042026-c2cd-4168-97b2-940b27edc93b",
+  "name": "Customer 1",
+  "address": "Timothy J. Toomey, Jr. Park",
+  "lat": 42.3665529,
+  "lng": -71.0807375,
+  "nearby_node_id": 4,
+  "load": 6,
+  "working_time": 41
+}
+```
+</CodeGroup>
+
+<Note>
+  Submit `nearby_node_id` as `null` (or omit it) in your request. The server always overwrites this field during preprocessing — any client-supplied value will be discarded.
+</Note>

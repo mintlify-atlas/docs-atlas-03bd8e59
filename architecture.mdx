@@ -1,0 +1,142 @@
+---
+title: "VRP Solution Architecture and Data Flow"
+sidebarTitle: "Architecture"
+description: "A deep-dive into VRP Solution's two-service design: the React 19 frontend, the FastAPI backend, four Python service modules, and the full request lifecycle from form submission to rendered routes."
+---
+
+VRP Solution is composed of two independent services — a **React 19 single-page application** that handles user input and map rendering, and a **FastAPI backend** that orchestrates geocoding, preprocessing, matrix computation, optimization, and route geometry retrieval. The two services communicate exclusively over HTTP; the frontend never accesses external APIs directly. This separation means you can swap the frontend for a headless API client, or point multiple frontends at the same backend, without changing either service.
+
+---
+
+## Frontend
+
+The frontend is a Vite-bundled React 19 application styled with Tailwind CSS. It renders a fixed two-panel layout: the **Sidebar** occupies the left half of the viewport and contains all input forms and result tables; the **MapView** occupies the right half and renders the interactive Leaflet map.
+
+### Key Components
+
+| Component | File | Responsibility |
+|---|---|---|
+| `App` | `App.jsx` | Root component. Owns all shared state (`nodes`, `vehicles`, `stations`, `routeData`). Polls the backend `/health` endpoint on mount and blocks the UI with `LoadingScreen` until the backend is reachable. Invokes `fetchSegmentRoute` when the user clicks Calculate Routes. |
+| `Sidebar` | `Sidebar.jsx` | Left panel. Renders the node list, vehicle list, CSV import/export controls, and the Calculate Routes button. Receives state setters as props and dispatches updates upward to `App`. |
+| `LocationForm` | `LocationForm.jsx` | Geocoding widget embedded in each node row. Sends the user-typed address to the backend `GET /geocode` endpoint (backed by Nominatim) and populates the node's `lat`/`lng` fields from the returned results. |
+| `MapView` | `MapView.jsx` | Right panel. Renders an OpenStreetMap base layer via react-leaflet. Draws depot, customer, and station markers; color-coded driving polylines per vehicle; and dashed walking polylines for last-mile legs. Re-renders whenever `routeData` or `nodes` change. |
+| `RouteStats` | `RouteStats.jsx` | Results table rendered inside the Sidebar after a successful optimization. Displays per-vehicle driving distance, driving duration, walking distance, walking duration, and total load. |
+
+### Backend Polling on Load
+
+`App.jsx` calls `fetchBackend()` (which hits `GET /health`) immediately on mount and retries every 3 seconds until the backend responds with HTTP 200. During this window, the user sees `LoadingScreen`. Once the backend is reachable, the app fetches initial data from `GET /nodes`, `GET /vehicles`, and `GET /stations` to pre-populate the form with any server-side defaults.
+
+---
+
+## Backend
+
+The backend is a FastAPI application (`backend-python/app/main.py`) running on Uvicorn. It exposes six HTTP endpoints and delegates all heavy computation to four service modules.
+
+### Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Liveness check. Returns `{"status": "healthy"}`. Used by the frontend polling loop. |
+| `GET` | `/nodes` | Returns the server-side default node list (empty in production; populated during development). |
+| `GET` | `/stations` | Returns the five pre-configured EZ Parking hub stations in Cambridge, MA. |
+| `GET` | `/vehicles` | Returns the server-side default vehicle list (empty in production). |
+| `GET` | `/geocode` | Proxies a free-text address query to the Nominatim OSM search API and returns up to five candidate locations with `name`, `lat`, and `lng`. |
+| `POST` | `/optimize-routes` | Accepts a `VRPRequest` body, runs the full 2E-VRP pipeline, and returns optimized routes with driving and walking geometries. |
+
+### Service Modules
+
+| Module | File | Responsibility |
+|---|---|---|
+| `preprocessor` | `services/preprocessor.py` | Distance validation, station proximity assignment, hub aggregation, and K-Means hub generation. |
+| `matrix_service` | `services/matrix_service.py` | Calls the ORS `/v2/matrix/driving-car` endpoint to compute pairwise distance and duration matrices for all VRP nodes. |
+| `optimizer_service` | `services/optimizer_service.py` | Wraps OR-Tools to solve the capacitated VRP with fixed vehicle costs and optional node penalties. Returns ordered node-index routes per vehicle. |
+| `routing_service` | `services/routing_service.py` | Calls ORS `/v2/directions/driving-car` and `/v2/directions/foot-hiking` to fetch actual road polylines for each route segment. |
+
+---
+
+## Request Flow
+
+The following steps describe the complete lifecycle of a single call to `POST /optimize-routes`.
+
+<Steps>
+  <Step title="User submits the form">
+    The user clicks **Calculate Routes** in the Sidebar. `App.jsx` validates that all nodes are fully geocoded and all vehicles have a positive capacity, then calls `fetchSegmentRoute()` from `frontend/src/services/api.js`. This function POSTs a JSON body — matching the `VRPRequest` Pydantic schema — to `POST /optimize-routes`.
+
+    ```json
+    {
+      "nodes": [
+        { "id": "0", "name": "Depot", "lat": 42.3568, "lng": -71.0609, "load": 0, "working_time": 0 },
+        { "id": "abc-123", "name": "Customer 1", "lat": 42.3665, "lng": -71.0807, "load": 6, "working_time": 41 }
+      ],
+      "vehicles": [
+        { "id": "xyz-789", "name": "Vehicle 1", "capacity": 15, "fixed_cost": 50 }
+      ],
+      "stations": [
+        { "id": 1, "name": "EZ Parking 1", "lat": 42.3607, "lng": -71.0705 }
+      ],
+      "use_auto_hubs": false
+    }
+    ```
+  </Step>
+
+  <Step title="node_distance_checker validates proximity to depot">
+    Before any optimization begins, `node_distance_checker(data.nodes, max_radius_km=100.0)` iterates every non-depot node and computes its haversine distance from the depot. If any node exceeds 100 km, the function raises a `ValueError` and FastAPI returns HTTP 422, preventing an ORS request that would fail anyway due to routing limits.
+  </Step>
+
+  <Step title="determine_nearby_stations assigns customers to hubs">
+    `determine_nearby_stations(data.nodes, stations, radius_km=0.25)` builds a KDTree over station coordinates, then for each customer node queries for stations within 0.25 km. If one or more stations fall within range, the customer's `nearby_node_id` is set to the ID of the closest station (by haversine distance). Customers beyond 0.25 km of every station retain `nearby_node_id = None` and will be served by vehicle directly.
+  </Step>
+
+  <Step title="prepare_vrp_data aggregates hub demands">
+    `prepare_vrp_data(new_nodes, data.stations)` builds the VRP node list that the solver will see:
+
+    - The depot (index 0) is always first.
+    - Customers with `nearby_node_id = None` are appended as individual VRP nodes with their own demand.
+    - Customers with a `nearby_node_id` are grouped under their station. Each station that has at least one proximate customer is added as a single VRP node whose demand equals the **sum** of all grouped customers' loads.
+
+    The function also returns `station_customers` — a mapping from station ID to the list of customer nodes assigned to it — which is used later to fetch walking geometries.
+  </Step>
+
+  <Step title="get_vehicle_matrix fetches the ORS distance and duration matrices">
+    `get_vehicle_matrix(vrp_nodes)` extracts the `[lng, lat]` coordinate pairs for all VRP nodes and sends a single request to the ORS `/v2/matrix/driving-car` endpoint. The response provides two square matrices — `distance_matrix` (metres) and `duration_matrix` (seconds) — that describe the travel cost between every pair of nodes. The solver uses `duration_matrix` as its primary cost metric.
+  </Step>
+
+  <Step title="solve_vrp runs OR-Tools with capacity constraints">
+    `solve_vrp(duration_matrix, data.vehicles, depot=0, demands=vrp_demands)` configures an OR-Tools routing model. Each vehicle is assigned its `capacity` as a hard upper bound on cumulative load, and its `fixed_cost` contributes to the objective when the vehicle is used. Nodes that cannot be served within capacity constraints may be dropped at a penalty. The solver returns a list of routes, each containing the ordered node indices visited by one vehicle along with the total load carried.
+  </Step>
+
+  <Step title="get_vehicle_route_geometry fetches driving polylines">
+    For each vehicle route that visits more than two nodes (depot → at least one stop → depot), `get_vehicle_route_geometry(node_indices, vrp_nodes)` calls ORS `/v2/directions/driving-car` with the ordered waypoints. ORS returns a GeoJSON LineString which is decoded into a list of `[lat, lng]` coordinate arrays (one per segment) along with total route distance and duration.
+  </Step>
+
+  <Step title="get_walking_route_geometry fetches last-mile pedestrian legs">
+    For every station node that appears in a vehicle route and that has entries in `station_customers`, `get_walking_route_geometry(station_node, customers)` calls ORS `/v2/directions/foot-hiking` for each customer grouped under that station. The result is a set of walking polylines, total walking time (seconds), and total walking distance (metres) representing the courier's on-foot leg from the station to each customer's door.
+  </Step>
+
+  <Step title="Response returned to frontend">
+    The assembled `complete_routes` list is returned as `{"routes": [...], "nodes": [...]}`. Each route entry includes the `vehicle` object, `driving_routes` (polyline segments), `walking_routes` (pedestrian polylines), `stops` (ordered node list), and four numeric totals: `total_driving_time`, `total_driving_distance`, `total_walking_time`, `total_walking_distance`, and `route_load`. The frontend stores this in `routeData` state, triggering a MapView re-render that draws all routes and a RouteStats re-render that populates the results table.
+  </Step>
+</Steps>
+
+---
+
+## External Dependencies
+
+VRP Solution relies on two external services for geographic data. Neither requires a local installation.
+
+<CardGroup cols={2}>
+  <Card title="OpenRouteService (ORS)" icon="route">
+    Used for both the distance/duration matrix (`/v2/matrix/driving-car`) and road geometry (`/v2/directions/driving-car`, `/v2/directions/foot-hiking`). Requires an API key stored in `backend-python/config.py`. ORS enforces rate limits on the free tier; large node counts may require a paid plan or a self-hosted instance.
+  </Card>
+  <Card title="Nominatim / OpenStreetMap" icon="location-dot">
+    Used for free-text address geocoding via the `GET /geocode` proxy endpoint. Nominatim is a public service operated by the OSM Foundation. The backend sends a custom `User-Agent: vrp-research-app` header as required by the Nominatim usage policy. No API key is needed, but requests are rate-limited to one per second.
+  </Card>
+</CardGroup>
+
+---
+
+## Automatic Hub Generation
+
+<Tip>
+  Set `use_auto_hubs: true` in the `VRPRequest` body to activate K-Means hub generation. When enabled, `generate_hubs(data.nodes, stations, num_hubs=2)` fits a two-cluster KMeans model over all customer coordinates and proposes up to two additional hub stations at the resulting centroids. Any centroid that falls within 0.1 km of an existing station is discarded to avoid duplicates. The generated hubs are appended to the station list before `determine_nearby_stations` runs, so they participate in the same proximity-assignment logic as the pre-configured EZ Parking stations.
+</Tip>

@@ -1,0 +1,125 @@
+---
+title: "Import Nodes and Vehicles from CSV Files"
+sidebarTitle: "CSV Import"
+description: "Speed up data entry by importing bulk node and vehicle lists from CSV files, and export geocoded nodes or full routing tables after optimization."
+---
+
+For scenarios with many delivery stops or a large fleet, filling in each row manually is impractical. VRP Solution supports CSV import for both nodes and vehicles, letting you prepare your data in a spreadsheet, upload it in one click, and have the full list appear in the sidebar instantly. Matching template files can be downloaded directly from the app to ensure your columns are in exactly the right order.
+
+## Nodes CSV Format
+
+The nodes CSV must contain **six columns in this exact order**, with a header row followed by one row per node:
+
+```
+name, address, lat, lng, load, working_time
+```
+
+The **first data row** (row index 1, immediately after the header) is always treated as the **depot** and assigned `id = "0"`. Every subsequent row becomes a customer node with a unique generated ID.
+
+### Example
+
+The template downloaded by the **Nodes: Template** button matches this layout exactly:
+
+```csv
+name,address,lat,lng,load,working_time
+"Main Depot","Dewey Library","42.3611465","-71.0837124","0","0"
+"Customer 1","CVS Pharmacy","42.3621768","-71.0850703","10","15"
+```
+
+### Column Descriptions
+
+| Column         | Type    | Required | Notes                                                                                                    |
+|----------------|---------|----------|----------------------------------------------------------------------------------------------------------|
+| `name`         | string  | Yes      | Display name shown on the map and in route results.                                                      |
+| `address`      | string  | Yes      | Street address. Used for geocoding if `lat`/`lng` are blank.                                             |
+| `lat`          | float   | No       | WGS 84 latitude. Leave empty to geocode manually after import.                                           |
+| `lng`          | float   | No       | WGS 84 longitude. Leave empty to geocode manually after import.                                          |
+| `load`         | integer | Yes      | Demand units for the stop. Must be `0` for the depot row.                                                |
+| `working_time` | integer | Yes      | Service time in minutes at this stop. Use `0` for the depot row.                                         |
+
+<Note>
+  `lat` and `lng` are optional. If you leave them blank (or the parser reads `NaN`), the node's coordinates are set to empty and the **Search Coordinates** button appears on that card. You can geocode each un-resolved node individually after import.
+</Note>
+
+## Vehicles CSV Format
+
+The vehicles CSV must contain **three columns in this exact order**:
+
+```
+name, capacity, fixed_cost
+```
+
+### Example
+
+The template downloaded by the **Fleet: Template** button uses this layout:
+
+```csv
+name,capacity,fixed_cost
+"Vehicle 1","10","50"
+"Vehicle 2","20","75"
+```
+
+### Column Descriptions
+
+| Column       | Type    | Required | Notes                                                                                                     |
+|--------------|---------|----------|-----------------------------------------------------------------------------------------------------------|
+| `name`       | string  | Yes      | Label for the vehicle shown in route results and the exported routing table.                              |
+| `capacity`   | integer | Yes      | Maximum total load units the vehicle can carry. The solver rejects vehicles with capacity ≤ 0.            |
+| `fixed_cost` | integer | Yes      | Penalty applied each time this vehicle is dispatched. Higher values favour fewer, fuller vehicles.        |
+
+## How to Download Templates
+
+Use the built-in template buttons to get a correctly formatted starting file before you build your own dataset.
+
+<Steps>
+  <Step title="Click the template button">
+    In the top-right corner of the sidebar, locate the **Nodes:** label and click the grey **Template** button next to it. For the vehicle template, click the grey **Template** button next to the **Fleet:** label. The browser downloads the corresponding file (`nodes_template.csv` or `vehicles_template.csv`) immediately — no dialog appears.
+  </Step>
+  <Step title="Open the file in a spreadsheet editor">
+    Open the downloaded CSV in Excel, Google Sheets, LibreOffice Calc, or any editor that supports CSV. The header row and two example rows will already be present with the correct column order.
+  </Step>
+  <Step title="Replace the sample rows with your own data">
+    Delete the two example data rows and add your depot and customer locations (or your vehicle fleet). Keep the header row intact — the parser skips it automatically. Make sure numeric fields (`lat`, `lng`, `load`, `working_time`, `capacity`, `fixed_cost`) do not contain non-numeric characters.
+  </Step>
+  <Step title="Save as CSV (UTF-8)">
+    Save the file in CSV format with UTF-8 encoding. In Excel, choose **File → Save As → CSV UTF-8 (Comma delimited)**. In Google Sheets, use **File → Download → Comma-separated values (.csv)**. Do not save as `.xlsx` — the importer accepts only `.csv` files.
+  </Step>
+</Steps>
+
+## How to Import
+
+<Steps>
+  <Step title="Click the Import CSV button">
+    In the sidebar header, click **Nodes: Import CSV** (the blue button) to import node data, or **Fleet: Import CSV** (the green button) to import vehicle data. A native file picker dialog opens.
+  </Step>
+  <Step title="Select your CSV file">
+    Navigate to your prepared CSV file and confirm the selection. Only `.csv` files are accepted — the file input has `accept=".csv"` enforced. The file is read entirely in the browser; nothing is uploaded to the server at this stage.
+  </Step>
+  <Step title="Review the imported list">
+    The app parses the file, constructs node or vehicle objects, and replaces the current list in the sidebar. A confirmation message reports how many rows were successfully imported. The first data row in the nodes CSV becomes the depot (id `"0"`); all other rows become customer nodes with generated UUIDs.
+  </Step>
+  <Step title="Geocode any nodes without coordinates">
+    If your CSV had empty `lat`/`lng` columns, those nodes will show the **Search Coordinates** button. Click it on each card to resolve the address using your configured Working Region before running the optimizer.
+  </Step>
+</Steps>
+
+<Warning>
+  Importing a CSV **replaces** the entire current node or vehicle list. Any data you entered manually before importing will be discarded. Download your existing data using the **Export Raw Nodes** button before importing if you want to keep it.
+</Warning>
+
+## Exporting Results
+
+After a successful optimization run, two export buttons appear at the bottom of the sidebar below the route cards.
+
+<CardGroup cols={2}>
+  <Card title="Export Raw Nodes" icon="package">
+    Downloads all nodes (depot + customers) as `nodes_generated.csv` using the same six-column format as the import template: `name, address, lat, lng, load, working_time`. Use this to save a geocoded dataset for reuse in a future session.
+  </Card>
+  <Card title="Export Routing Table" icon="truck">
+    Downloads the full stop-by-stop routing table as `routing_results_table.csv`. Columns include Vehicle, Stop #, Type (DEPOT / HUB / STOP / WALKING), Location Name, Accumulated Distance (km), Load, Transport Duration, Arrival time, Departure time, and Service Time. Walking legs from hub stops appear as indented sub-rows.
+  </Card>
+</CardGroup>
+
+<Note>
+  The CSV parser handles standard RFC 4180 quoted fields (values wrapped in double quotes) and trims leading/trailing whitespace from each cell. Rows with fewer columns than expected are silently skipped to prevent partial data from corrupting the node list.
+</Note>

@@ -1,0 +1,132 @@
+---
+title: "Run Route Optimization and Interpret the Process"
+sidebarTitle: "Run Optimization"
+description: "Learn what the Calculate Routes button triggers, how the server processes your data, and how to handle common errors before and after submission."
+---
+
+When you click **Calculate Routes**, VRP Solution performs a multi-stage pipeline that validates your input, preprocesses your node data, builds a travel-time matrix via OpenRouteService, solves the Two-Echelon VRP with Google OR-Tools, and stitches together detailed route geometries — all in a single request. Understanding each stage helps you diagnose unexpected results and tune your inputs for better solutions.
+
+## Prerequisites Checklist
+
+Before making any network request, the frontend validates your data client-side and will show an alert if any condition is not met. Make sure all of the following are satisfied:
+
+<CardGroup cols={2}>
+  <Card title="Nodes" icon="map-pin">
+    - At least **two nodes** must exist: the depot (`id = "0"`) and at least one customer
+    - Every node must have a **name**, a non-empty **address**, and fully resolved **lat / lng** coordinates (geocoding must have completed)
+    - The depot node always has `load = 0`
+  </Card>
+  <Card title="Vehicles" icon="truck">
+    - At least **one vehicle** must be defined
+    - Every vehicle must have a non-empty **name**, a numeric **capacity greater than zero**, and a numeric **fixed\_cost** value
+  </Card>
+</CardGroup>
+
+<Note>
+  The **Calculate Routes** button is disabled (greyed out) when `nodes.length < 2` or `vehicles.length === 0`, so you cannot trigger a request in those states. The three remaining checks run when the button is clicked and will surface an alert dialog describing the issue.
+</Note>
+
+## The `use_auto_hubs` Option
+
+The `/optimize-routes` endpoint accepts an optional `use_auto_hubs` boolean field in the request body. When set to `true`, the backend runs scikit-learn K-Means clustering on all non-depot customer coordinates and generates **2 additional hub stations** at the cluster centroids (skipping any centroid that falls within 0.1 km of an existing EZ Parking station). These synthetic hubs are merged with the real station list before the proximity-assignment step.
+
+```json
+{
+  "nodes": [...],
+  "vehicles": [...],
+  "stations": [...],
+  "use_auto_hubs": true
+}
+```
+
+<Info>
+  The current UI passes the node, vehicle, and station arrays directly to `fetchSegmentRoute` without a `use_auto_hubs` key, so the field defaults to `false` and only the pre-configured EZ Parking stations are used. Advanced users can enable automatic hub generation by calling `POST /optimize-routes` directly with `"use_auto_hubs": true` in the JSON body.
+</Info>
+
+## What Happens Server-Side
+
+Once the request reaches the FastAPI backend, the following pipeline executes in order:
+
+<Steps>
+  <Step title="Distance Validation">
+    `node_distance_checker` iterates over every non-depot node and computes its haversine distance from the depot. If any node exceeds **100 km**, the function raises a `ValueError` and FastAPI returns an **HTTP 422 Unprocessable Entity** with a message identifying the offending node and its actual distance.
+  </Step>
+  <Step title="Auto Hub Generation (optional)">
+    If `use_auto_hubs` is `true`, `generate_hubs` fits a K-Means model with `n_clusters=2` on all customer (lat, lng) pairs. Each cluster centroid becomes a synthetic hub station unless it sits within 0.1 km of an existing station. The generated hubs are appended to the stations list for the remainder of the pipeline.
+  </Step>
+  <Step title="Proximity Assignment">
+    `determine_nearby_stations` builds a **scipy KDTree** from all station coordinates and queries it with a radius of **0.25 km** for each customer node. When one or more stations fall within range, the closest one (by haversine distance) is recorded in the node's `nearby_node_id` field. Nodes with no nearby station receive `nearby_node_id = null` and will be served directly by vehicle.
+  </Step>
+  <Step title="VRP Data Preparation">
+    `prepare_vrp_data` partitions nodes into two groups. Customers assigned to a station are grouped under that station and removed from the direct-delivery list — the station's demand becomes the sum of its customers' loads. The resulting `vrp_nodes` list (depot + direct customers + active stations) forms the node set that OR-Tools will optimize over.
+  </Step>
+  <Step title="Travel-Time Matrix Computation">
+    `get_vehicle_matrix` calls the **OpenRouteService `/v2/matrix/driving-car`** endpoint with all VRP node coordinates and retrieves a full N×N `distance_matrix` (meters) and `duration_matrix` (seconds). This real-world matrix replaces straight-line estimates with actual road-network travel times.
+  </Step>
+  <Step title="OR-Tools VRP Optimization">
+    `solve_vrp` constructs a `RoutingModel` with the `duration_matrix` as the arc cost. It registers vehicle capacities and fixed costs, adds a capacity dimension, and makes every non-depot node optional with a **penalty of 10,000** so infeasible nodes are dropped gracefully rather than causing solver failure. The solver runs with:
+    - **First solution strategy:** `PARALLEL_CHEAPEST_INSERTION`
+    - **Metaheuristic:** `GUIDED_LOCAL_SEARCH`
+    - **Time limit:** 10 seconds
+  </Step>
+  <Step title="Driving Route Geometry">
+    For each vehicle route that contains more than two stops (depot → at least one stop → depot), `get_vehicle_route_geometry` calls **ORS `/v2/directions/driving-car`** for each consecutive node pair and retrieves the decoded polyline coordinates, segment distance, and segment duration.
+  </Step>
+  <Step title="Walking Route Geometry">
+    For every EZ Parking station stop in a vehicle route, `get_walking_route_geometry` calls **ORS `/v2/directions/foot-hiking`** from the station to each of its assigned customers, collecting walking polyline coordinates, one-way distance, and one-way duration. The UI doubles both values to represent a round-trip.
+  </Step>
+  <Step title="Response Assembly">
+    The backend assembles the `complete_routes` array — one entry per active vehicle — and returns `{ "routes": [...], "nodes": [...] }` to the frontend. The `nodes` array contains the updated node list with `nearby_node_id` fields populated.
+  </Step>
+</Steps>
+
+## While You Wait
+
+After clicking **Calculate Routes**, the button label changes to **"Calculating..."** and becomes disabled for the duration of the request. The input form remains visible but inactive. Typical end-to-end response times depend on fleet and network size:
+
+| Scenario | Approximate Duration |
+|---|---|
+| 5–10 nodes, 2 vehicles | 5–15 seconds |
+| 15–25 nodes, 4 vehicles | 15–35 seconds |
+| 30+ nodes, 6+ vehicles | 35–60+ seconds |
+
+The majority of latency comes from ORS matrix and directions API calls, which scale with the number of nodes and route segments. The OR-Tools solver itself is capped at 10 seconds regardless of problem size.
+
+## Error Handling
+
+<AccordionGroup>
+  <Accordion title="No solution found (empty routes array)">
+    OR-Tools returns an empty solution when it cannot assign any node within the time limit. The sidebar displays a red panel: **"No routes found — We couldn't generate a route with the current nodes and vehicles. Please try again."**
+
+    **What to try:**
+    - Increase the `capacity` of one or more vehicles so demands can be met
+    - Add additional vehicles to the fleet
+    - Reduce the number of customer nodes or split the problem into two separate runs
+  </Accordion>
+  <Accordion title="Distance limit exceeded (HTTP 422)">
+    Returned when any node is more than 100 km from the depot. The error message includes the node name and its actual distance.
+
+    **What to try:**
+    - Verify that the node's geocoded coordinates are correct — an incorrect geocode is the most common cause
+    - Move the depot closer to the cluster of customers, or split geographically distant customers into a separate run
+  </Accordion>
+  <Accordion title="Failed to calculate routes (network/API error)">
+    Displayed as a browser alert when the fetch itself fails or the backend returns a non-OK status.
+
+    **What to try:**
+    - Check that the backend is reachable (the loading screen on startup confirms this)
+    - Verify your ORS API key is valid and has not exceeded its daily quota
+    - Inspect the browser console and the FastAPI logs for the specific upstream error from ORS
+  </Accordion>
+  <Accordion title="Geocoding failure (blank lat/lng)">
+    Nominatim may return no results for an ambiguous or misspelled address, leaving lat/lng fields empty. The client-side check will catch this and show an **"Incomplete Nodes"** alert before the request is sent.
+
+    **What to try:**
+    - Try a more specific address string (include city and country)
+    - Manually enter coordinates using the lat/lng fields in the node editor
+  </Accordion>
+</AccordionGroup>
+
+<Tip>
+  If OR-Tools finds a solution but several customers appear in the **Unassigned Nodes** panel, the penalty threshold (10,000 time-units) was cheaper than routing to those stops. Adding a vehicle with sufficient remaining capacity, or increasing existing vehicle capacities, is the fastest way to bring those nodes into the solution.
+</Tip>

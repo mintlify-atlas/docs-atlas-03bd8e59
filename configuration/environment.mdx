@@ -1,0 +1,163 @@
+---
+title: "Environment Setup for VRP Solution"
+sidebarTitle: "Environment"
+description: "Configure the Python backend and React frontend environments, set required API keys, and run both services locally for full Two-Echelon VRP functionality."
+---
+
+VRP Solution runs as two independent processes that communicate over HTTP: a FastAPI backend responsible for routing, optimization, and geocoding, and a React/Vite frontend that provides the interactive map interface. Before you can solve your first route, both processes need their runtime variables set and their dependencies installed. This page walks through every configuration value, explains what each one does, and shows you the exact commands to start both services.
+
+## Backend Configuration
+
+The backend stores its runtime configuration in `backend-python/config.py`. This is a plain Python module imported directly by the FastAPI application — no `.env` parsing library is required.
+
+```python backend-python/config.py
+ORS_API_KEY = "your_openrouteservice_api_key_here"
+ORS_BASE_URL = "https://api.openrouteservice.org"
+```
+
+`ORS_API_KEY` is passed as the `Authorization` header in every request to OpenRouteService. `ORS_BASE_URL` is the base path prepended to all ORS endpoint calls (`/v2/matrix/driving-car`, `/v2/directions/driving-car`, and `/v2/directions/foot-hiking`). See the [OpenRouteService](/configuration/openrouteservice) page for instructions on obtaining a key.
+
+### CORS Policy
+
+The FastAPI app registers a permissive CORS middleware:
+
+```python backend-python/app/main.py
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+<Warning>
+  `allow_origins=["*"]` accepts requests from any origin. This is convenient during local development but should be restricted to your frontend's actual domain before deploying to a production environment. Replace `"*"` with your production URL, for example `["https://vrp.example.com"]`.
+</Warning>
+
+### Starting the Backend
+
+Run the following command from inside the `backend-python/` directory. Uvicorn will hot-reload the application on every file change, which is useful while tuning solver parameters.
+
+```bash
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Python Dependencies
+
+Install all required packages from the pinned requirements file:
+
+```bash
+pip install -r requirements.txt
+```
+
+The table below describes the key runtime dependencies and their role in the application.
+
+| Package | Version | Role |
+|---|---|---|
+| `fastapi` | 0.133.0 | HTTP framework, request validation, routing |
+| `uvicorn` | 0.41.0 | ASGI server that runs the FastAPI app |
+| `ortools` | 9.15.6755 | Google OR-Tools — core VRP/CVRP solver |
+| `pydantic` | 2.12.5 | Data validation for all request and response models |
+| `requests` | 2.32.5 | HTTP client used to call OpenRouteService APIs |
+| `haversine` | 2.9.0 | Great-circle distance between GPS coordinates |
+| `scikit-learn` | 1.8.0 | K-Means clustering used in automatic hub generation |
+| `scipy` | 1.17.1 | Spatial utilities used during preprocessing |
+| `numpy` | 2.4.2 | Numerical array operations throughout services |
+| `polyline` | 2.0.4 | Encodes/decodes Google polyline geometry from ORS |
+
+---
+
+## Frontend Configuration
+
+The React frontend is built with Vite and reads its runtime configuration from environment variables prefixed with `VITE_`. These values are inlined at build time via `import.meta.env` and are not available server-side.
+
+### Setting the API Base URL
+
+Create a `.env` file in the `frontend/` directory with the following content:
+
+```bash frontend/.env
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+This variable is consumed by `frontend/src/services/api.js`, which prepends it to every backend request:
+
+```js frontend/src/services/api.js
+const BASE = import.meta.env.VITE_API_BASE_URL;
+
+export async function fetchBackend() {
+  const res = await fetch(`${BASE}/health`);
+  if (!res.ok) throw new Error('Failed backend');
+  return res.json();
+}
+```
+
+When deploying to a remote host, change the value to your backend's public URL:
+
+```bash frontend/.env.production
+VITE_API_BASE_URL=https://api.vrp.example.com
+```
+
+### Frontend Dependencies
+
+From the `frontend/` directory, install Node packages and launch the development server:
+
+```bash
+npm install && npm run dev
+```
+
+To build an optimized production bundle:
+
+```bash
+npm run build
+```
+
+The table below lists the key frontend runtime dependencies.
+
+| Package | Version | Role |
+|---|---|---|
+| `react` | 19.2.4 | UI framework |
+| `react-dom` | 19.2.4 | DOM renderer for React |
+| `react-leaflet` | 5.0.0 | React bindings for the Leaflet map library |
+| `leaflet` | 1.9.4 | Interactive map rendering engine |
+| `@mapbox/polyline` | 1.2.1 | Decodes encoded polyline strings from ORS |
+| `axios` | 1.13.5 | HTTP client for API communication |
+| `lucide-react` | 0.577.0 | Icon components used throughout the UI |
+| `uuid` | 13.0.0 | Generates unique IDs for nodes and vehicles |
+
+---
+
+## Running Both Services
+
+<Steps>
+  <Step title="Start the backend">
+    Open a terminal, navigate to the `backend-python/` directory, and launch Uvicorn:
+
+    ```bash
+    cd backend-python
+    uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+    ```
+
+    You should see `Application startup complete.` in the terminal output. Verify it is healthy by visiting `http://localhost:8000/health` — the response should be `{"status": "healthy"}`.
+  </Step>
+
+  <Step title="Start the frontend">
+    Open a second terminal, navigate to the `frontend/` directory, and start the Vite dev server:
+
+    ```bash
+    cd frontend
+    npm install
+    npm run dev
+    ```
+
+    Vite will print a local URL, typically `http://localhost:5173`.
+  </Step>
+
+  <Step title="Open the application">
+    Navigate to `http://localhost:5173` in your browser. The sidebar will appear, and the map will render once the frontend successfully reaches the backend's `/health` endpoint.
+  </Step>
+</Steps>
+
+<Warning>
+  The frontend polls the `/health` endpoint on startup and displays a loading spinner until it receives a successful response. If the backend is not running when you open the browser, the UI will appear stuck. Always start the backend first and confirm it is healthy before opening the frontend.
+</Warning>

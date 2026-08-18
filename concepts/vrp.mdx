@@ -1,0 +1,131 @@
+---
+title: "What Is the Vehicle Routing Problem?"
+sidebarTitle: "VRP Basics"
+description: "Understand the Vehicle Routing Problem, its optimization objective, and how VRP Solution uses OR-Tools with GUIDED_LOCAL_SEARCH to find near-optimal delivery routes."
+---
+
+The Vehicle Routing Problem (VRP) is a combinatorial optimization challenge: given a fleet of vehicles at a central depot and a set of customer locations each with a delivery demand, find the lowest-cost set of routes so that every customer is visited exactly once and every vehicle returns to the depot. What sounds straightforward becomes computationally hard the moment the number of stops grows — the search space expands factorially, and brute-force enumeration becomes impossible for any real-world scenario. VRP Solution tackles this using Google OR-Tools, a battle-tested constraint-programming engine, to find near-optimal solutions within seconds.
+
+## The Objective
+
+The solver minimizes the total cost of serving all customers, combining two cost signals:
+
+1. **Travel cost** — the cumulative driving time across all vehicle routes. OR-Tools minimizes the sum of arc costs in the routing graph, where each arc's cost is the driving duration in seconds between two nodes as returned by OpenRouteService.
+2. **Fixed vehicle cost** — every vehicle that is activated in a solution incurs a flat `fixed_cost` charge. This discourages the solver from spinning up extra vehicles unnecessarily; it will consolidate stops onto fewer vehicles when the capacity math allows.
+
+Customer nodes are treated as **optional**: every non-depot node is wrapped in a disjunction with a `penalty=10000`. The solver may choose to leave a node unserved rather than serve it if the detour cost exceeds the penalty — but in practice this only occurs when the combined capacity of all vehicles is genuinely insufficient to reach a node within the maximum route distance.
+
+<Note>
+  The `penalty=10000` is expressed in the same unit as arc costs (seconds of travel time). An unserved node costs 10,000 seconds — far higher than any realistic detour — so the solver almost always prefers serving nodes. Unserved nodes appear only when hard constraints (capacity or distance limits) make service infeasible.
+</Note>
+
+## How OR-Tools Solves It
+
+OR-Tools uses a two-phase strategy to find a solution within the 10-second time budget.
+
+<Steps>
+  <Step title="Initial Solution: Parallel Cheapest Insertion">
+    The solver builds a first feasible solution using `PARALLEL_CHEAPEST_INSERTION`. This greedy strategy evaluates all unrouted nodes simultaneously and inserts each one into the cheapest available position across all vehicle routes. The result is a valid — but not yet optimized — starting point.
+  </Step>
+  <Step title="Improvement: Guided Local Search">
+    Starting from the initial solution, the solver applies `GUIDED_LOCAL_SEARCH` (GLS) as the metaheuristic. GLS uses a penalty mechanism to escape local optima: it augments the cost function to penalize frequently used, expensive route segments, encouraging the solver to explore structurally different solutions.
+  </Step>
+  <Step title="Time Limit">
+    The search runs for a maximum of **10 seconds** (`time_limit.seconds = 10`). Within that window, GLS iterates over local moves and keeps the best solution found. Larger problem instances benefit from the full time budget; small instances typically converge in well under a second.
+  </Step>
+</Steps>
+
+The relevant configuration from `optimizer_service.py`:
+
+```python
+search_parameters = pywrapcp.DefaultRoutingSearchParameters()
+
+search_parameters.first_solution_strategy = (
+    routing_enums_pb2.FirstSolutionStrategy.PARALLEL_CHEAPEST_INSERTION
+)
+search_parameters.local_search_metaheuristic = (
+    routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
+)
+search_parameters.time_limit.seconds = 10
+```
+
+## Constraints in VRP Solution
+
+Every VRP run enforces the following hard and soft constraints:
+
+<AccordionGroup>
+  <Accordion title="Vehicle Capacity">
+    Each vehicle has a `capacity` value representing the maximum total load it can carry. The solver accumulates `load` values from each customer node along the route and rejects any assignment that would push a vehicle over its limit. The capacity is registered with OR-Tools as a dimension:
+
+    ```python
+    routing.AddDimensionWithVehicleCapacity(
+        demand_callback_index,
+        0,                   # no slack
+        vehicle_capacities,  # [v.capacity for v in vehicles]
+        True,
+        "Capacity"
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Fixed Vehicle Cost">
+    Each vehicle carries a `fixed_cost` that is added to the objective whenever that vehicle is used (i.e., leaves the depot). The solver balances this fixed cost against the marginal travel cost of adding stops to an existing route:
+
+    ```python
+    for vehicle_id in range(num_vehicles):
+        routing.SetFixedCostOfVehicle(vehicle_fixed_costs[vehicle_id], vehicle_id)
+    ```
+
+    A vehicle with a high `fixed_cost` will only be activated if it delivers enough cost savings through route consolidation to justify its overhead.
+  </Accordion>
+
+  <Accordion title="Maximum Route Distance">
+    Each vehicle route is capped at **100,000 meters** (100 km) by default. This constraint prevents degenerate solutions where a single vehicle drives an impractically long circuit:
+
+    ```python
+    routing.AddDimension(
+        transit_callback_index,
+        0,             # no slack
+        100000,        # max_route_distance in meters
+        True,
+        "Distance"
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Optional Nodes (Soft Constraint)">
+    Every non-depot node is registered with `AddDisjunction`, making it optional with a penalty of **10,000**:
+
+    ```python
+    for node in range(1, num_nodes):
+        routing.AddDisjunction(
+            [manager.NodeToIndex(node)],
+            penalty  # default: 10000
+        )
+    ```
+
+    If serving a node is infeasible under all hard constraints, the solver drops it and pays the penalty rather than returning no solution at all.
+  </Accordion>
+</AccordionGroup>
+
+## What the Solver Returns
+
+After optimization, `solve_vrp()` returns a list of route objects — one per vehicle. Each route contains:
+
+<ResponseField name="vehicle_id" type="string">
+  The ID of the vehicle assigned to this route, corresponding to `Vehicle.id` in the request.
+</ResponseField>
+
+<ResponseField name="vehicle_route" type="list[int]">
+  An ordered list of node indices representing the sequence of stops. The route always begins and ends with index `0` (the depot). For example, `[0, 2, 5, 3, 0]` means the vehicle visits nodes 2, 5, and 3 before returning to the depot.
+</ResponseField>
+
+<ResponseField name="load" type="int">
+  The total demand served on this route — the sum of `load` values for all customer nodes visited.
+</ResponseField>
+
+Routes where the vehicle stays at the depot (i.e., `len(vehicle_route) <= 2`) are filtered out before being returned to the client, so the response only includes vehicles that are genuinely dispatched.
+
+<Note>
+  Nodes located more than **100 km** from the depot are rejected before the solver ever runs. The `node_distance_checker()` function in `preprocessor.py` measures the haversine distance from the depot to each customer node and raises a `ValueError` if any node exceeds the 100 km radius. This prevents OR-Tools from handling unrealistic distances that would distort the distance matrix.
+</Note>

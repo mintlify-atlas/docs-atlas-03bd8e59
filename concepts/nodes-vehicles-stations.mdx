@@ -1,0 +1,205 @@
+---
+title: "Nodes, Vehicles, and Stations Explained"
+sidebarTitle: "Entities"
+description: "A deep dive into the three core data entities in VRP Solution — Nodes, Vehicles, and Stations — and how each shapes the optimizer's behavior and output."
+---
+
+Every optimization request in VRP Solution is built from three fundamental entities: **Nodes** represent locations that need to be visited (or from which routes originate), **Vehicles** represent the fleet that will serve those locations, and **Stations** represent parking hubs where vehicles stop while couriers complete last-mile deliveries on foot. Understanding how these entities are defined, how they interact, and how the preprocessor transforms them before optimization is key to building well-formed requests and interpreting results correctly.
+
+## Nodes
+
+A node is any addressable location in the routing problem. There are two distinct kinds:
+
+- **Depot** (id `"0"`) — the starting and ending point for all vehicle routes. It has zero load and zero working time.
+- **Customer nodes** — delivery destinations, each carrying a demand (`load`) and a service duration (`working_time`).
+
+The `Node` Pydantic model defines the following fields:
+
+<ParamField body="id" type="string" required>
+  Unique identifier for the node. The depot must always have id `"0"`. Customer nodes typically use UUID strings.
+</ParamField>
+
+<ParamField body="name" type="string" required>
+  Human-readable label displayed in route results and the map UI (e.g., `"Customer 1"`, `"Main Depot"`).
+</ParamField>
+
+<ParamField body="address" type="string">
+  Optional street address string. Used for display purposes; geocoding is performed separately via the `/geocode` endpoint.
+</ParamField>
+
+<ParamField body="lat" type="float" required>
+  Latitude in decimal degrees.
+</ParamField>
+
+<ParamField body="lng" type="float" required>
+  Longitude in decimal degrees.
+</ParamField>
+
+<ParamField body="nearby_node_id" type="int | null">
+  The `id` of the nearest Station within 250 m, if one exists. This field is **assigned automatically** by `determine_nearby_stations()` during preprocessing — you do not need to set it in the request. When set, the node will be served via walking route from that station rather than directly by a vehicle.
+</ParamField>
+
+<ParamField body="load" type="int" default="0">
+  Demand units for this node — the quantity of goods to be delivered. The depot always has `load=0`. Customer loads are summed under their assigned station when preprocessing consolidates demand.
+</ParamField>
+
+<ParamField body="working_time" type="int" default="0">
+  Service time at this node, in **minutes**. Represents how long the courier spends at the location after arriving. Used for scheduling but not directly fed into the distance matrix.
+</ParamField>
+
+**Example — depot and two customer nodes:**
+
+```json
+[
+  {
+    "id": "0",
+    "name": "Main Depot",
+    "address": "Moakley Library",
+    "lat": 42.3568568,
+    "lng": -71.0609706,
+    "load": 0,
+    "working_time": 0
+  },
+  {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "name": "Customer 1",
+    "address": "Timothy J. Toomey, Jr. Park",
+    "lat": 42.3665529,
+    "lng": -71.0807375,
+    "load": 6,
+    "working_time": 41
+  },
+  {
+    "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+    "name": "Customer 2",
+    "address": "Cambridge Center Garage",
+    "lat": 42.3635614,
+    "lng": -71.0886472,
+    "load": 3,
+    "working_time": 73
+  }
+]
+```
+
+<Tip>
+  `load` represents demand in user-defined units — it could be parcels, kilograms, pallet slots, or any other measure your operation uses. The only requirement is that all `load` values and vehicle `capacity` values use the same unit consistently within a single request.
+
+  `working_time` is expressed in **minutes** and represents the service duration at a customer location. It is not included in the driving time calculation but is available in route output for scheduling purposes.
+</Tip>
+
+## Vehicles
+
+Each vehicle in the fleet is described by a capacity and a fixed operating cost. The optimizer uses both values to decide how many vehicles to dispatch and which stops to assign to each.
+
+<ParamField body="id" type="string" required>
+  Unique vehicle identifier, typically a UUID string.
+</ParamField>
+
+<ParamField body="name" type="string" required>
+  Human-readable label for the vehicle (e.g., `"Vehicle 1"`). Displayed in route results and the Sidebar.
+</ParamField>
+
+<ParamField body="capacity" type="int" required>
+  Maximum total load the vehicle can carry. The sum of `load` values for all stops on this vehicle's route must not exceed this value.
+</ParamField>
+
+<ParamField body="fixed_cost" type="int" required>
+  A flat cost charged whenever this vehicle is activated in a solution (i.e., it leaves the depot). The optimizer weighs this against the marginal travel savings of using an additional vehicle. A high `fixed_cost` vehicle is only deployed when it meaningfully reduces total route distance.
+</ParamField>
+
+**Example — two vehicles with different capacity/cost profiles:**
+
+```json
+[
+  {
+    "id": "v1-uuid",
+    "name": "Vehicle 1",
+    "capacity": 15,
+    "fixed_cost": 50
+  },
+  {
+    "id": "v2-uuid",
+    "name": "Vehicle 2",
+    "capacity": 8,
+    "fixed_cost": 10
+  }
+]
+```
+
+<Note>
+  `fixed_cost` is expressed in the same unit as travel arc costs (seconds). A vehicle with `fixed_cost: 50` will only be dispatched if deploying it saves at least 50 seconds of travel time compared to absorbing its stops into existing routes. If you want to heavily prefer fewer vehicles, increase `fixed_cost`. If you want the optimizer to spread load across the fleet freely, use a low or zero `fixed_cost`.
+</Note>
+
+## Stations (Hubs)
+
+Stations are EZ Parking hubs — designated locations where vehicles park and couriers depart on foot to serve nearby customers. They act as the bridge between the first echelon (vehicle driving) and the second echelon (courier walking). Any customer node within 250 m of a station is automatically assigned to that station and removed from the direct vehicle route; instead, its demand is aggregated under the station stop.
+
+<ParamField body="id" type="int" required>
+  Integer identifier for the station. This ID is used as `nearby_node_id` on customer nodes assigned to this station.
+</ParamField>
+
+<ParamField body="name" type="string" required>
+  Display name for the station (e.g., `"EZ Parking 3"`).
+</ParamField>
+
+<ParamField body="lat" type="float" required>
+  Latitude in decimal degrees.
+</ParamField>
+
+<ParamField body="lng" type="float" required>
+  Longitude in decimal degrees.
+</ParamField>
+
+**Example station:**
+
+```json
+{
+  "id": 3,
+  "name": "EZ Parking 3",
+  "lat": 42.362705,
+  "lng": -71.0820743
+}
+```
+
+### Pre-Configured EZ Parking Stations
+
+VRP Solution ships with five pre-configured EZ Parking stations, available from the `GET /stations` endpoint:
+
+| ID | Name | Latitude | Longitude |
+|----|------|----------|-----------|
+| 1 | EZ Parking 1 | 42.3607667 | -71.0705503 |
+| 2 | EZ Parking 2 | 42.3576735 | -71.0701434 |
+| 3 | EZ Parking 3 | 42.362705 | -71.0820743 |
+| 4 | EZ Parking 4 | 42.3651988 | -71.0831014 |
+| 5 | EZ Parking 5 | 42.3630885 | -71.0913624 |
+
+All five stations are located in the Boston/Cambridge area and are designed to complement the default depot location at Moakley Library.
+
+### Auto Hub Generation
+
+When `use_auto_hubs: true` is included in the request, the preprocessor uses **K-Means clustering** (`n_clusters=2`) to derive two additional hub candidates from the customer node coordinates. Any generated hub that falls within 100 m of an existing station is discarded to avoid redundancy. Surviving hubs are appended to the stations list before proximity assignment runs.
+
+```json
+{
+  "nodes": [...],
+  "vehicles": [...],
+  "stations": [...],
+  "use_auto_hubs": true
+}
+```
+
+<Tip>
+  Use `use_auto_hubs: true` when your customer nodes are spread across areas not well-covered by the five fixed EZ Parking stations. The K-Means algorithm will generate hubs near the natural geographic clusters in your delivery data.
+</Tip>
+
+## The Depot — Special Rules
+
+<Note>
+  The first node in the `nodes` array must always be the depot, identified by `id: "0"`. The depot is the start and end point for every vehicle route.
+
+  - `load` must be `0` — the depot has no delivery demand.
+  - `working_time` must be `0` — vehicles do not spend service time at the depot.
+  - The depot is never assigned a `nearby_node_id` — it is explicitly skipped during proximity assignment.
+
+  If the depot node is missing or its ID is not `"0"`, the optimizer will produce incorrect routes.
+</Note>

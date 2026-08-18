@@ -1,0 +1,110 @@
+---
+title: "GET /stations — List EZ Parking Hub Stations"
+sidebarTitle: "GET /stations"
+description: "Returns the 5 pre-configured EZ Parking hub stations used as second-echelon transfer points in the Two-Echelon VRP. Stations are hard-coded in main.py."
+---
+
+The `/stations` endpoint returns the five EZ Parking hub stations that serve as the second-echelon transfer points in the Two-Echelon VRP model. Vehicles drive from the depot to one of these stations, and from there couriers walk the final leg to nearby customer delivery addresses. Unlike nodes and vehicles, the stations list is hard-coded in `main.py` and is always populated — this endpoint never returns an empty array under normal operation.
+
+The station coordinates are real locations in the Boston/Cambridge area used for research and demonstration purposes.
+
+## Request
+
+**Method:** `GET`  
+**Path:** `/stations`  
+**Auth:** None  
+**Parameters:** None
+
+## Response Schema
+
+Returns a JSON array of `Station` objects.
+
+<ResponseField name="id" type="integer" required>
+  Numeric identifier for the station (1–5). Referenced by `nearby_node_id` on `Node` objects after preprocessing.
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  Human-readable name for the station (e.g. `"EZ Parking 1"`).
+</ResponseField>
+
+<ResponseField name="lat" type="float" required>
+  Latitude of the station in decimal degrees (WGS 84).
+</ResponseField>
+
+<ResponseField name="lng" type="float" required>
+  Longitude of the station in decimal degrees (WGS 84).
+</ResponseField>
+
+## Station Locations
+
+| ID | Name | Latitude | Longitude |
+|----|------|----------|-----------|
+| 1 | EZ Parking 1 | 42.3607667 | -71.0705503 |
+| 2 | EZ Parking 2 | 42.3576735 | -71.0701434 |
+| 3 | EZ Parking 3 | 42.362705 | -71.0820743 |
+| 4 | EZ Parking 4 | 42.3651988 | -71.0831014 |
+| 5 | EZ Parking 5 | 42.3630885 | -71.0913624 |
+
+## Example
+
+<CodeGroup>
+```bash cURL
+curl http://localhost:8000/stations
+```
+
+```js JavaScript (Fetch)
+const res = await fetch('http://localhost:8000/stations');
+const stations = await res.json();
+```
+
+```python Python
+import requests
+r = requests.get("http://localhost:8000/stations")
+print(r.json())
+```
+</CodeGroup>
+
+### Response
+
+```json
+[
+  {
+    "id": 1,
+    "name": "EZ Parking 1",
+    "lat": 42.3607667,
+    "lng": -71.0705503
+  },
+  {
+    "id": 2,
+    "name": "EZ Parking 2",
+    "lat": 42.3576735,
+    "lng": -71.0701434
+  },
+  {
+    "id": 3,
+    "name": "EZ Parking 3",
+    "lat": 42.362705,
+    "lng": -71.0820743
+  },
+  {
+    "id": 4,
+    "name": "EZ Parking 4",
+    "lat": 42.3651988,
+    "lng": -71.0831014
+  },
+  {
+    "id": 5,
+    "name": "EZ Parking 5",
+    "lat": 42.3630885,
+    "lng": -71.0913624
+  }
+]
+```
+
+## Role in the 2E-VRP Model
+
+Stations returned by this endpoint are passed as the `stations` array in the `POST /optimize-routes` request body. During preprocessing, each customer node is assigned the nearest station within a 0.25 km radius — this assignment is stored in the node's `nearby_node_id` field. Vehicles drive to a station stop, and walking routes are then generated from the station to all customers whose `nearby_node_id` matches that station.
+
+<Tip>
+  If `use_auto_hubs` is set to `true` in the optimize-routes request, K-Means clustering generates 2 additional synthetic hub candidates and appends them to this station list for that request only. The stations returned by `GET /stations` are never modified.
+</Tip>

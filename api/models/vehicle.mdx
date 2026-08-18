@@ -1,0 +1,86 @@
+---
+title: "Vehicle — Fleet Member Data Model"
+sidebarTitle: "Vehicle"
+description: "Vehicle defines a fleet member with load capacity and a fixed cost penalty that OR-Tools uses when deciding how many vehicles to deploy across all routes."
+---
+
+Each `Vehicle` object in a `VRPRequest` represents one available delivery vehicle in your fleet. The optimizer treats every vehicle as a potential route actor and decides which ones to actually deploy based on demand coverage and cost minimization. Two properties directly influence that decision: `capacity` caps how much load a vehicle can carry across its entire route, while `fixed_cost` is a penalty the solver adds to the objective whenever it activates a vehicle — making expensive vehicles less attractive unless their use is genuinely necessary. Vehicles are identified by a UUID `id` so that response routes can be correlated back to the original fleet definition without ambiguity.
+
+## Fields
+
+<ResponseField name="id" type="string" required>
+  A UUID string that uniquely identifies this vehicle across the request and response. Generate it client-side with `uuid.uuid4()`. The optimizer maps response routes back to the original vehicle definition using this field.
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  Human-readable display label for the vehicle, shown in the map legend and route statistics panel. Examples: `"Vehicle 1"`, `"Van A"`, `"Cargo Bike 3"`.
+</ResponseField>
+
+<ResponseField name="capacity" type="integer" required>
+  Maximum total load units this vehicle can carry across all stops in its route. The optimizer will never assign a set of customer stops to this vehicle whose combined `load` values exceed this number. Choose units consistently across all nodes (e.g., parcels, kilograms, pallets).
+</ResponseField>
+
+<ResponseField name="fixed_cost" type="integer" required>
+  A cost penalty applied to the optimization objective whenever this vehicle is used at all (i.e., whenever it is assigned at least one customer stop). OR-Tools uses this value to balance the trade-off between deploying an extra vehicle versus adding more stops to an existing route. See [Fixed Cost Explained](#fixed-cost-explained) below.
+</ResponseField>
+
+## Fixed Cost Explained
+
+The VRP Solution optimizer minimizes a combined objective: total travel time across all routes **plus** the sum of fixed costs for every vehicle that is actually deployed. This means:
+
+<CardGroup cols={2}>
+  <Card title="Higher Fixed Cost" icon="arrow-up">
+    The solver is less willing to activate this vehicle. It will prefer to load up existing routes first, only adding this vehicle if demand cannot otherwise be satisfied within capacity constraints.
+  </Card>
+  <Card title="Lower Fixed Cost" icon="arrow-down">
+    The solver treats this vehicle as inexpensive to operate. It may be deployed even when adding it yields only marginal time savings, effectively spreading load across more vehicles.
+  </Card>
+</CardGroup>
+
+<Tip>
+  Use `fixed_cost` to reflect real operating expenses. If one van costs significantly more per trip than another (fuel, insurance, driver rate), assign it a proportionally higher `fixed_cost`. A typical working range is `10`–`100`, though the scale is relative — what matters is the ratio between values in your fleet, not absolute magnitude.
+</Tip>
+
+<Warning>
+  Setting all vehicles to the same `fixed_cost` of `0` removes the deployment penalty entirely. The optimizer may then spread deliveries across every available vehicle even when fewer vehicles would suffice, inflating cost and complexity.
+</Warning>
+
+## Example
+
+```json Vehicle Object
+{
+  "id": "7806f630-5785-4eeb-87ec-3b736834a442",
+  "name": "Vehicle 1",
+  "capacity": 15,
+  "fixed_cost": 50
+}
+```
+
+### Multi-Vehicle Fleet Example
+
+```json Fleet Array
+[
+  {
+    "id": "7806f630-5785-4eeb-87ec-3b736834a442",
+    "name": "Vehicle 1",
+    "capacity": 15,
+    "fixed_cost": 50
+  },
+  {
+    "id": "5547bbea-dc89-47a7-8bdc-2f0e2fdf02cc",
+    "name": "Vehicle 3",
+    "capacity": 12,
+    "fixed_cost": 40
+  },
+  {
+    "id": "a3c12d91-7f44-4b2e-9e5a-1c8f3b6d0e22",
+    "name": "Vehicle 4",
+    "capacity": 8,
+    "fixed_cost": 10
+  }
+]
+```
+
+<Info>
+  In the example above, Vehicle 4 has a low `fixed_cost` of `10` and will be activated readily. Vehicle 1 with `fixed_cost: 50` will only be deployed if the remaining demand justifies its cost. The optimizer may choose to leave Vehicle 1 idle entirely if Vehicles 3 and 4 can cover all stops within their capacities.
+</Info>

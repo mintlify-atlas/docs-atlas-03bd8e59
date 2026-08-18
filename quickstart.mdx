@@ -1,47 +1,101 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with VRP Solution in 5 Minutes"
+sidebarTitle: "Quickstart"
+description: "Clone the repo, configure your OpenRouteService API key, spin up the FastAPI backend and Vite dev server, then run your first route optimization in under five minutes."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
+This guide takes you from a fresh clone to a working solver with routes drawn on the map. You will start the FastAPI backend, point it at your OpenRouteService account, install the React frontend, and submit your first optimization request — all without writing any application code.
 
 ## Prerequisites
 
-Before you begin, you must have:
+Before you begin, make sure the following are available on your machine:
 
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
+- **Python 3.8 or later** — the backend uses `ortools`, `fastapi`, `scikit-learn`, and `haversine`, all of which require Python 3.8+.
+- **Node.js 18 or later** — the frontend is built with Vite 7 and React 19, which require a modern Node.js runtime.
+- **An OpenRouteService API key** — ORS provides the distance matrix and road geometry used by the solver. Free tier keys are available at [openrouteservice.org](https://openrouteservice.org).
 
-## Get started
+---
+
+## Setup Steps
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+  <Step title="Clone the repository and install backend dependencies">
+    Clone the project and install the Python packages listed in `requirements.txt`. It is strongly recommended to use a virtual environment.
 
     ```bash
-    npm install your-package
+    git clone https://github.com/Porto1090/vrp-solution.git
+    cd vrp-solution/backend-python
+
+    python -m venv .venv
+    source .venv/bin/activate        # Windows: .venv\Scripts\activate
+
+    pip install -r requirements.txt
     ```
+
+    Once dependencies are installed, start the FastAPI development server from the `backend-python/` directory:
+
+    ```bash
+    uvicorn app.main:app --reload
+    ```
+
+    The API will be available at `http://127.0.0.1:8000`. You can verify it is running by visiting `http://127.0.0.1:8000/health`, which returns `{"status": "healthy"}`.
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
 
-    ```bash
-    your-cli init
+  <Step title="Set your OpenRouteService API key">
+    Open `backend-python/config.py` and replace the placeholder value of `ORS_API_KEY` with your own key. The file also defines `ORS_BASE_URL`, which points to the ORS public API — leave this unchanged unless you are running a self-hosted ORS instance.
+
+    ```python
+    # backend-python/config.py
+    ORS_API_KEY = "YOUR_ORS_API_KEY_HERE"
+    ORS_BASE_URL = "https://api.openrouteservice.org"
     ```
+
+    The `ORS_API_KEY` is consumed by both `matrix_service.py` (to call `/v2/matrix/driving-car`) and `routing_service.py` (to call `/v2/directions/driving-car` and `/v2/directions/foot-hiking`). All three calls will fail with HTTP 403 if the key is missing or invalid.
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+
+  <Step title="Install frontend dependencies and start the dev server">
+    Open a second terminal, navigate to the `frontend/` directory, and install the npm packages:
 
     ```bash
-    your-cli start
+    cd vrp-solution/frontend
+    npm install
     ```
+
+    Before starting the dev server, create a `.env` file in the `frontend/` directory to point the app at your running backend:
+
+    ```bash
+    # frontend/.env
+    VITE_API_BASE_URL=http://127.0.0.1:8000
+    ```
+
+    Then start the Vite development server:
+
+    ```bash
+    npm run dev
+    ```
+
+    Vite will print the local URL — typically `http://localhost:5173`. Open that address in your browser.
+  </Step>
+
+  <Step title="Run your first optimization">
+    With both services running, the browser will display the VRP Solution interface — a split-panel layout with a Sidebar on the left and an interactive map on the right.
+
+    1. **Set the depot** — in the first node row (labeled "Depot"), type an address and click the geocode button. The depot is always node index `0`.
+    2. **Add customer nodes** — click **Add Node** to insert customer rows. For each customer, enter a name, type an address to geocode it, and set a **load** (demand units) and optional **working time** (minutes).
+    3. **Configure vehicles** — each vehicle needs a **name**, a **capacity** (maximum load units), and a **fixed cost** (used by the solver's objective function).
+    4. **Click Calculate Routes** — the frontend POSTs the full request to `/optimize-routes`. While solving, a loading spinner is shown. When complete, color-coded routes appear on the map and the RouteStats panel populates with per-vehicle distance, duration, and load figures.
   </Step>
 </Steps>
 
 <Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
-
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
+  On first load, the frontend polls `GET /health` every three seconds until the backend responds. If you are running the backend on a remote server or a free-tier cloud host that cold-starts, **expect a 30–50 second wait** before the loading screen clears and the main interface appears. This is normal — the app will connect automatically once the backend is ready.
 </Tip>
+
+---
+
+## Next Steps
+
+Now that you have a working local environment, explore these guides to go deeper:
+
+- [Preparing Input Data](/guides/input-data) — how to structure depots, customers, vehicles, and stations for reliable optimization results
+- [CSV Import & Export](/guides/csv-import) — bulk-load nodes and vehicles from a spreadsheet and export solved routes for analysis

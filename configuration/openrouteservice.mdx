@@ -1,0 +1,180 @@
+---
+title: "Configure OpenRouteService for Routing and Matrix"
+sidebarTitle: "OpenRouteService"
+description: "Set up your OpenRouteService API key and understand how VRP Solution uses ORS for distance matrices, driving routes, and walking route geometry."
+---
+
+VRP Solution delegates all real-world routing computations to [OpenRouteService](https://openrouteservice.org) (ORS), a free, open-source routing engine built on OpenStreetMap data. ORS is used for three distinct purposes in the solver pipeline: building the full NxN distance and duration matrix that the OR-Tools optimizer works from, fetching the actual road-following polyline geometry displayed on the map for each vehicle's driving route, and computing pedestrian walking routes from each hub or parking station to its assigned customers. Without a valid ORS API key, the `/optimize-routes` endpoint will fail at the matrix-computation step before the optimizer is ever called.
+
+## Getting an API Key
+
+<Steps>
+  <Step title="Create a free ORS account">
+    Go to [https://openrouteservice.org/dev/#/signup](https://openrouteservice.org/dev/#/signup) and register for a free developer account using your email address.
+  </Step>
+
+  <Step title="Generate a new token">
+    After logging in, open the **Dashboard** and select **Request a Token**. Choose the **Standard** plan, which gives you access to the free tier without requiring payment details. Give the token a descriptive name such as `vrp-solution`.
+  </Step>
+
+  <Step title="Copy the API key">
+    Once generated, copy the full API key string from the dashboard. The key is a JWT-formatted token and will look similar to:
+
+    ```
+    eyJvcmciOiI1YjNj...
+    ```
+  </Step>
+
+  <Step title="Add the key to config.py">
+    Open `backend-python/config.py` and replace the placeholder value of `ORS_API_KEY` with the key you just copied:
+
+    ```python backend-python/config.py
+    ORS_API_KEY = "eyJvcmciOiI1YjNj..."   # paste your key here
+    ORS_BASE_URL = "https://api.openrouteservice.org"
+    ```
+
+    Restart the backend after saving this file. The key is imported at module load time, so a restart is required for the change to take effect.
+  </Step>
+</Steps>
+
+---
+
+## ORS Endpoints Used
+
+VRP Solution calls three ORS endpoints. Each is called at a different stage of the optimization pipeline.
+
+| Endpoint | Profile | Service | Called From |
+|---|---|---|---|
+| `POST /v2/matrix/driving-car` | Driving | Builds the NxN distance and duration matrix for all VRP nodes | `matrix_service.py` |
+| `POST /v2/directions/driving-car` | Driving | Returns actual road polyline geometry for each vehicle route segment | `routing_service.py` |
+| `POST /v2/directions/foot-hiking` | Walking | Returns pedestrian polyline geometry from each hub to its customers | `routing_service.py` |
+
+The matrix endpoint is called **once** per optimization request and covers all nodes simultaneously. The directions endpoints are called **per segment**: once per vehicle route (driving) and once per hub-to-customer pair (walking). For a problem with many vehicles and many hub assignments, the number of directions calls can grow quickly.
+
+---
+
+## Rate Limits and Quotas
+
+<Tip>
+  For local testing and development, keep your total node count below 15. This ensures a single optimization run stays well within the free tier's per-minute and per-day limits.
+</Tip>
+
+The ORS free tier (Standard plan) enforces the following limits:
+
+| Limit type | Quota |
+|---|---|
+| Directions requests per minute | 40 |
+| Directions requests per day | 500 |
+| Matrix requests per minute | 5 |
+| Matrix requests per day | 10 |
+| Max matrix locations | 3 500 |
+
+Each call to `/optimize-routes` consumes:
+- **1 matrix request** regardless of node count
+- **1 driving-directions request** per vehicle route that has more than 2 stops
+- **1 walking-directions request** per customer assigned to a hub
+
+A 10-node problem with 3 vehicles and 4 hub customers will therefore use 1 matrix call and up to 7 directions calls. Scaling to 50+ nodes with many hub assignments can exhaust the daily directions budget in a handful of runs.
+
+<Note>
+  If you exceed the per-minute limit, ORS returns HTTP `429 Too Many Requests`. The backend does not currently implement automatic retry with backoff, so the `/optimize-routes` request will fail with an error. Wait 60 seconds and resubmit.
+</Note>
+
+---
+
+## Request Format
+
+### Matrix Request
+
+`matrix_service.py` sends the following JSON body to `POST /v2/matrix/driving-car`. Locations are passed as `[longitude, latitude]` pairs (see the coordinate order note below).
+
+```python backend-python/services/matrix_service.py
+locations = [[node.lng, node.lat] for node in nodes]
+
+response = requests.post(
+    f"{ORS_BASE_URL}/v2/matrix/driving-car",
+    json={
+        "locations": locations,
+        "metrics": ["distance", "duration"]
+    },
+    headers={
+        "Authorization": ORS_API_KEY,
+        "Content-Type": "application/json"
+    }
+)
+```
+
+The equivalent JSON body for a three-node problem looks like this:
+
+```json
+{
+  "locations": [
+    [-71.0609706, 42.3568568],
+    [-71.0807375, 42.3665529],
+    [-71.0820743, 42.3627050]
+  ],
+  "metrics": ["distance", "duration"]
+}
+```
+
+ORS returns a `distances` matrix (metres) and a `durations` matrix (seconds), both as NxN nested arrays. The optimizer in `optimizer_service.py` uses the `durations` matrix.
+
+### Directions Request
+
+Both `get_vehicle_route_geometry()` and `get_walking_route_geometry()` in `routing_service.py` use the same request body shape — only the endpoint path differs.
+
+```python backend-python/services/routing_service.py
+# Driving route geometry
+response = requests.post(
+    f"{ORS_BASE_URL}/v2/directions/driving-car",
+    json={
+        "coordinates": coordinates,
+    },
+    headers={
+        "Authorization": ORS_API_KEY,
+        "Content-Type": "application/json"
+    }
+)
+
+# Walking route geometry
+response = requests.post(
+    f"{ORS_BASE_URL}/v2/directions/foot-hiking",
+    json={"coordinates": coordinates},
+    headers={
+        "Authorization": ORS_API_KEY,
+        "Content-Type": "application/json"
+    }
+)
+```
+
+The JSON body for a two-point segment:
+
+```json
+{
+  "coordinates": [
+    [-71.0705503, 42.3607667],
+    [-71.0807375, 42.3665529]
+  ]
+}
+```
+
+ORS returns a `routes` array. VRP Solution reads `routes[0]["geometry"]` (an encoded polyline string), decodes it with the `polyline` library, and passes the resulting coordinate list to the frontend for map rendering.
+
+---
+
+## Authentication
+
+ORS authenticates requests via a header named `Authorization`. The value is the raw API key — no `Bearer` prefix is used.
+
+```python
+headers={
+    "Authorization": ORS_API_KEY,
+    "Content-Type": "application/json"
+}
+```
+
+This header is added identically in both `matrix_service.py` and `routing_service.py`. If the key is missing or malformed, ORS returns HTTP `403 Forbidden`.
+
+<Note>
+  ORS coordinates follow `[longitude, latitude]` order — the **opposite** of the GeoJSON and Leaflet convention, which use `[latitude, longitude]`. VRP Solution's internal `Node` model stores `lat` and `lng` as separate fields. Every ORS call explicitly constructs pairs as `[node.lng, node.lat]` to ensure the correct order. Swapping these values will cause routes to be computed in the wrong geographic location without raising an error.
+</Note>

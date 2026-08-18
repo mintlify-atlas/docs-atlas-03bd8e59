@@ -1,0 +1,210 @@
+---
+title: "Two-Echelon Routing: Hub-and-Walk Delivery"
+sidebarTitle: "Two-Echelon"
+description: "Learn how VRP Solution implements two-echelon routing — vehicles drive to parking hubs, then couriers walk the last 250 m to reach customers on foot."
+---
+
+Two-Echelon Vehicle Routing (2E-VRP) splits the delivery process into two distinct layers of movement. In the **first echelon**, vehicles drive from the depot to a set of intermediate hubs (EZ Parking stations), carrying consolidated loads. In the **second echelon**, couriers depart from those hubs on foot to reach individual customer doorsteps within walking distance. This architecture reflects the reality of urban last-mile delivery: large vehicles can't navigate every alley and pedestrianized zone, but a courier on foot can. VRP Solution implements both echelons in a single optimization pass — the vehicle routing is solved by OR-Tools, and walking routes are computed in real time via OpenRouteService.
+
+## Why Two Echelons?
+
+Dense urban environments create a structural mismatch between what delivery vehicles can efficiently do and where customers actually are. Vehicles excel at covering long distances quickly but struggle with narrow streets, limited parking, and the door-to-door final approach. Two-echelon routing resolves this by designating parking hubs as micro-depots:
+
+<CardGroup cols={2}>
+  <Card title="Fewer Vehicle Stops" icon="truck">
+    Instead of routing a vehicle to every individual address, the optimizer routes it to a hub that covers a cluster of nearby customers in one stop. Fewer stops means faster driving routes.
+  </Card>
+  <Card title="Flexible Last Mile" icon="person-walking">
+    Couriers walk from the hub to each assigned customer — navigating spaces no vehicle could reach, while the vehicle moves on to the next hub.
+  </Card>
+  <Card title="Better Capacity Utilization" icon="box">
+    Aggregating customer loads under a single hub stop lets the optimizer reason about a hub's total demand as a single unit, improving capacity planning across the fleet.
+  </Card>
+  <Card title="Real Walking Routes" icon="map">
+    Walking routes are computed via the OpenRouteService `foot-hiking` profile — not straight-line estimates — so travel times reflect actual pedestrian paths.
+  </Card>
+</CardGroup>
+
+## First Echelon: Vehicle Routes
+
+In the first echelon, vehicles drive a circuit from the depot, stopping at one or more EZ Parking stations, then returning to the depot. From the optimizer's perspective, stations are treated as regular nodes in the routing graph — they have coordinates, they appear in the distance matrix, and the vehicle must visit them in sequence.
+
+The critical transformation happens in `prepare_vrp_data()`: instead of routing to each individual customer node, the preprocessor **consolidates customer demands under their nearest station**. Any customer node that has been assigned a `nearby_node_id` is removed from the direct vehicle route and its `load` is added to the station's aggregated demand.
+
+```python
+def prepare_vrp_data(nodes, stations):
+    vrp_nodes = []
+    vrp_demands = []
+    station_customers = {}
+
+    vrp_nodes.append(nodes[0])   # depot always first
+    vrp_demands.append(0)
+
+    for node in nodes[1:]:
+        nearby_id = node.nearby_node_id
+        if nearby_id is not None:
+            # Group this customer under its station
+            if nearby_id not in station_customers:
+                station_customers[nearby_id] = []
+            station_customers[nearby_id].append(node)
+        else:
+            # No nearby station — serve this node directly
+            vrp_nodes.append(node)
+            vrp_demands.append(node.load)
+
+    for station in stations:
+        if station.id in station_customers:
+            # Station demand = sum of all assigned customer loads
+            demand = sum(c.load for c in station_customers[station.id])
+            vrp_nodes.append(station)
+            vrp_demands.append(demand)
+
+    return vrp_nodes, vrp_demands, station_customers
+```
+
+After this transformation, the optimizer sees a compact set of nodes: the depot, any customer nodes without a nearby station, and stations whose demand reflects the sum of all customers assigned to them. The vehicle carries enough load to cover the station's total demand in a single stop.
+
+<Note>
+  Only stations that have at least one assigned customer appear in the VRP node list. A station with no customers within 250 m is excluded from the optimization entirely, which prevents the solver from routing vehicles to empty hubs.
+</Note>
+
+## Second Echelon: Walking Routes
+
+Once a vehicle stops at a station, the second echelon begins. For every customer assigned to that station, a walking route is computed from the station's coordinates to the customer's coordinates using OpenRouteService's `foot-hiking` profile.
+
+```python
+response = requests.post(
+    f"{ORS_BASE_URL}/v2/directions/foot-hiking",
+    json={"coordinates": coordinates},
+    headers={
+        "Authorization": ORS_API_KEY,
+        "Content-Type": "application/json"
+    }
+)
+```
+
+Each walking segment in the response includes:
+
+<ResponseField name="node" type="Node">
+  The customer node being served by this walking segment.
+</ResponseField>
+
+<ResponseField name="coords" type="list[list[float]]">
+  Decoded polyline coordinates of the walking path — the actual pedestrian route geometry rendered on the map.
+</ResponseField>
+
+<ResponseField name="distance" type="float">
+  Walking distance to this customer in meters.
+</ResponseField>
+
+<ResponseField name="duration" type="float">
+  Estimated walking time to this customer in seconds.
+</ResponseField>
+
+<ResponseField name="station_id" type="int">
+  The ID of the EZ Parking station from which the courier departs.
+</ResponseField>
+
+Walking routes are computed **per station per route** — for each vehicle route, every station stop that has assigned customers triggers a batch of walking route requests, one per customer. The total walking time and distance across all walking segments are summed and returned alongside the driving totals in the final route response.
+
+## Proximity Assignment
+
+The decision of which customers walk and which are served directly by vehicle depends entirely on proximity to a station. This logic lives in `determine_nearby_stations()`.
+
+<Steps>
+  <Step title="Build a KDTree from station coordinates">
+    All station lat/lng coordinates are loaded into a `scipy.spatial.KDTree`. This data structure enables fast nearest-neighbor lookups without scanning every station for every node.
+
+    ```python
+    station_coords = np.array([[s.lat, s.lng] for s in stations])
+    tree = KDTree(station_coords)
+    ```
+  </Step>
+
+  <Step title="Approximate radius query in degrees">
+    For each customer node, the KDTree is queried for all stations within an approximate bounding radius. The 250 m radius is converted to degrees using `radius_km / 90` as a rough approximation for initial filtering:
+
+    ```python
+    radius_deg = radius_km / 90  # radius_km = 0.25 → ~0.00278°
+    indices = tree.query_ball_point(node_coord, r=radius_deg)
+    ```
+
+    This fast pass returns a small candidate set of nearby stations.
+  </Step>
+
+  <Step title="Precise haversine check">
+    For each candidate station returned by the KDTree query, the **exact** haversine distance is computed between the customer and the station. This corrects for the angular distortion of the degree-based approximation:
+
+    ```python
+    dist = haversine(
+        (node.lat, node.lng),
+        (station.lat, station.lng),
+        unit=Unit.KILOMETERS
+    )
+    ```
+  </Step>
+
+  <Step title="Assign nearest station within 250 m">
+    The station with the minimum haversine distance that falls within the 0.25 km radius is assigned as the node's `nearby_node_id`. If no station is within range, `nearby_node_id` is set to `None` and the customer remains on the direct vehicle route.
+
+    ```python
+    node.nearby_node_id = best_station.id if best_station else None
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+  The 250 m (0.25 km) walking radius is the design threshold for what constitutes a walkable last-mile leg. Customers just beyond 250 m from every station remain on the vehicle route and are served by direct drive. If you find that few customers are being assigned to stations, consider enabling `use_auto_hubs` to generate hubs closer to your customer clusters.
+</Tip>
+
+## Auto Hub Generation
+
+When `use_auto_hubs: true` is set in the request, VRP Solution generates additional hub candidates programmatically using K-Means clustering, filling coverage gaps where the five fixed EZ Parking stations don't reach.
+
+```python
+def generate_hubs(nodes, stations, num_hubs, min_station_distance_km=0.1):
+    coords = np.array([[n.lat, n.lng] for n in nodes if n.id != "0"])
+
+    kmeans = KMeans(n_clusters=num_hubs)
+    kmeans.fit(coords)
+
+    hubs = []
+    for i, center in enumerate(kmeans.cluster_centers_):
+        hub_lat, hub_lng = center[0], center[1]
+
+        # Discard if too close to an existing station
+        too_close = any(
+            haversine((hub_lat, hub_lng), (s.lat, s.lng), unit=Unit.KILOMETERS)
+            < min_station_distance_km
+            for s in stations
+        )
+
+        if not too_close:
+            hubs.append({
+                "id": f"auto_hub_{i}",
+                "lat": hub_lat,
+                "lng": hub_lng,
+                "name": f"Auto Hub {i}"
+            })
+    return hubs
+```
+
+The process works as follows:
+
+1. **Cluster customer coordinates** — K-Means with `n_clusters=2` partitions all customer nodes (excluding the depot) into two geographic clusters and returns their centroids.
+2. **Filter proximity conflicts** — Any centroid within **100 m** of an existing EZ Parking station is discarded. Placing a new hub on top of an existing one would be redundant.
+3. **Append surviving hubs** — Approved auto hubs are appended to the stations list before `determine_nearby_stations()` runs, so they participate in proximity assignment alongside the fixed stations.
+
+<Note>
+  Auto hubs are always generated with `num_hubs=2` in the current implementation. The two K-Means centroids represent the geographic center of mass of each major customer cluster. In areas where all customers are tightly grouped, both centroids may converge near each other, potentially resulting in only one auto hub after the proximity filter removes duplicates.
+</Note>
+
+## Unassigned Nodes
+
+Even with a full fleet and hub coverage, some customer nodes may not make it into the final solution. This happens when the combined capacity of all vehicles is insufficient to serve every node within the maximum route distance constraint, causing the OR-Tools solver to invoke the optional-node penalty mechanism and drop the node from all routes.
+
+Nodes that appear in the optimizer's response without a vehicle assignment are surfaced in the **Unassigned Nodes** panel in the VRP Solution UI. Each unassigned node shows its name, address, load, and working time so that operators can decide whether to re-run the optimization with additional vehicle capacity or handle those deliveries separately.
+
+<Warning>
+  If a significant number of nodes are consistently unassigned, it is a signal that your fleet's total capacity is too low for the demand, or that the 100,000 m maximum route distance constraint is excluding outlier nodes. Consider adding vehicles, increasing vehicle capacity, or checking whether any nodes exceed the 100 km depot radius limit.
+</Warning>
